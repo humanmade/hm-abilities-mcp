@@ -1,0 +1,21 @@
+{
+	"name": "hm-abilities-mcp",
+	"private": true,
+	"description": "Registers a set of WordPress Abilities API entries (whoami, content CRUD, media sideload, navigation, settings read/write, block helpers) flagged for exposure over MCP",
+	"scripts": {
+		"env:cli": "npx @wordpress/env run cli",
+		"env:db": "npx @wordpress/env run cli -- mysql -uroot -ppassword wordpress --host=mysql",
+		"env:destroy": "npx @wordpress/env destroy",
+		"env:logs": "npx @wordpress/env logs development | grep -v -E '\"(GET|OPTIONS|HEAD|POST|PUT)'",
+		"env:start": "npx @wordpress/env start",
+		"env:stop": "npx @wordpress/env stop",
+		"format": "wp-scripts format",
+		"lint:php": "composer phpcs",
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"author": "Human Made Limited",
+	"license": "GPL-2.0-or-later",
+	"dependencies": {
+		"@wordpress/scripts": "^28.6.0"
+	}
+}

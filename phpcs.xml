@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<ruleset name="HM Abilities MCP Coding Standards">
+	<description>Human Made Coding Standards</description>
+
+	<!-- What to scan -->
+	<file>./inc/</file>
+    <file>hm-abilities-mcp.php</file>
+
+    <exclude-pattern>./vendor/</exclude-pattern>
+
+	<!-- How to scan -->
+	<arg value="sp"/> <!-- Show sniff and progress -->
+	<arg name="colors"/> <!-- Show results with colors (disable if working on Windows). -->
+	<arg name="basepath" value="."/> <!-- Show paths as the relevant relative path. -->
+	<arg name="parallel" value="8"/> <!-- Enables parallel processing when available. -->
+
+	<!-- Support recent versions of WordPress. -->
+	<config name="minimum_supported_wp_version" value="6.8"/>
+
+	<!-- Human Made Coding Standards -->
+	<rule ref="HM">
+        <!-- These stylistic-only rules are disabled temporarily and should be fixed in follow-up. -->
+        <exclude name="PSR12.Functions.ReturnTypeDeclaration.SpaceBeforeColon" />
+        <exclude name="WordPress.Arrays.ArrayDeclarationSpacing" />
+        <exclude name="Squiz.Commenting" />
+        <exclude name="Squiz.Strings.ConcatenationSpacing" />
+        <exclude name="Generic.Commenting" />
+        <exclude name="Squiz.Commenting.FileComment.Missing" />
+        <exclude name="NormalizedArrays.Arrays.ArrayBraceSpacing" />
+
+        <!-- Requiring inline tags to be on newlines makes render.php partials harder to read. -->
+        <exclude name="Squiz.PHP.EmbeddedPhp.ContentBeforeOpen" />
+        <exclude name="Squiz.PHP.EmbeddedPhp.ContentAfterEnd" />
+	</rule>
+
+    <rule ref="HM.Files.NamespaceDirectoryName.NoIncDirectory">
+        <exclude-pattern>hm-abilities-mcp.php</exclude-pattern>
+    </rule>
+</ruleset>
