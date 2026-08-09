@@ -24,7 +24,5 @@ function bootstrap(): void {
 	Navigation\bootstrap();
 	Settings\bootstrap();
 	Blocks\bootstrap();
-	BlockInsights\bootstrap();
+	Block_Insights\bootstrap();
 }
-
-bootstrap();

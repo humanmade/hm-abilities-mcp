@@ -8,11 +8,10 @@
 
 declare( strict_types = 1 );
 
-namespace HM\Abilities\BlockInsights;
+namespace HM\Abilities\Block_Insights;
 
-use WP_Post;
 use HM\Abilities\Support;
-use const HM\Abilities\Support\CATEGORY;
+use WP_Post;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -54,7 +53,7 @@ function register(): void {
 		[
 			'label'               => __( 'Block usage stats', 'hm-abilities-mcp' ),
 			'description'         => __( 'Count how often each block type is used, for one site or across the whole multisite network.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				[
 					'scope'     => [
@@ -91,7 +90,7 @@ function register(): void {
 		[
 			'label'               => __( 'Get page blocks', 'hm-abilities-mcp' ),
 			'description'         => __( 'List the blocks on a single page. Give a front-end URL (the subsite is resolved from it) or a page ID plus optional site ID.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				[
 					'url'             => [
@@ -126,7 +125,7 @@ function register(): void {
 		[
 			'label'               => __( 'Find missing block', 'hm-abilities-mcp' ),
 			'description'         => __( 'Across the network, report which subsites are missing a given block type on their front page (or a given page path). Example block_name: "core/details".', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				[
 					'block_name' => [

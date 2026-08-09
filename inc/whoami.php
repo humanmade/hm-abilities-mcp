@@ -12,10 +12,8 @@ declare( strict_types = 1 );
 
 namespace HM\Abilities\Whoami;
 
-use WP_Error;
 use HM\Abilities\Support;
-
-use const HM\Abilities\Support\CATEGORY;
+use WP_Error;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -50,7 +48,7 @@ function register(): void {
 		[
 			'label'               => __( 'Who am I', 'hm-abilities-mcp' ),
 			'description'         => __( 'Returns the profile of the currently authenticated user, including their roles on the targeted subsite.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema( Support\with_site_id( [] ) ),
 			'execute_callback'    => __NAMESPACE__ . '\\execute',
 			'permission_callback' => __NAMESPACE__ . '\\check_permission',
