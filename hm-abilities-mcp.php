@@ -20,7 +20,7 @@ defined( 'ABSPATH' ) || exit;
 
 // Ability modules. Each file registers its own hooks via a bootstrap() function.
 require_once __DIR__ . '/inc/namespace.php';
-require_once __DIR__ . '/inc/helpers.php';
+require_once __DIR__ . '/inc/support.php';
 require_once __DIR__ . '/inc/category.php';
 require_once __DIR__ . '/inc/whoami.php';
 require_once __DIR__ . '/inc/content.php';
