@@ -9,8 +9,8 @@ declare( strict_types = 1 );
 
 namespace HM\Abilities\Support;
 
-use WP_Post;
 use WP_Error;
+use WP_Post;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -331,11 +331,11 @@ function each_site(): array {
  *
  * Switching is a no-op on single site or when the target is the current blog.
  *
- * @param int      $blog_id Target blog ID.
- * @param callable $fn      Callback run in the switched context.
+ * @param int      $blog_id  Target blog ID.
+ * @param callable $callback Callback run in the switched context.
  * @return mixed Whatever the callback returns.
  */
-function with_site( int $blog_id, callable $fn ) {
+function with_site( int $blog_id, callable $callback ) {
 	$switched = false;
 
 	if ( is_multisite() && $blog_id > 0 && $blog_id !== get_current_blog_id() ) {
@@ -344,7 +344,7 @@ function with_site( int $blog_id, callable $fn ) {
 	}
 
 	try {
-		return $fn();
+		return $callback();
 	} finally {
 		if ( $switched ) {
 			restore_current_blog();
@@ -417,18 +417,18 @@ function resolve_target_site( $input ) {
  * and restores context afterwards. Returns the resolve error unchanged when the
  * `site_id` is invalid, so an execute callback can `return on_site( ... )`.
  *
- * @param mixed    $input Ability input (read for `site_id`).
- * @param callable $fn    Callback run in the target context.
+ * @param mixed    $input    Ability input (read for `site_id`).
+ * @param callable $callback Callback run in the target context.
  * @return mixed Callback result, or a WP_Error from resolution.
  */
-function on_site( $input, callable $fn ) {
+function on_site( $input, callable $callback ) {
 	$blog_id = resolve_target_site( $input );
 
 	if ( is_wp_error( $blog_id ) ) {
 		return $blog_id;
 	}
 
-	return with_site( $blog_id, $fn );
+	return with_site( $blog_id, $callback );
 }
 
 /**

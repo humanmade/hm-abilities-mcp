@@ -9,9 +9,8 @@ declare( strict_types = 1 );
 
 namespace HM\Abilities\Content;
 
-use WP_Post;
 use HM\Abilities\Support;
-use const HM\Abilities\Support\CATEGORY;
+use WP_Post;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -50,7 +49,7 @@ function register(): void {
 		[
 			'label'               => __( 'List content', 'hm-abilities-mcp' ),
 			'description'         => __( 'List pages, posts, and custom post types with optional filters.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
 					[
@@ -89,7 +88,7 @@ function register(): void {
 		[
 			'label'               => __( 'List recent articles', 'hm-abilities-mcp' ),
 			'description'         => __( 'List recently published articles within a published-date window, newest first. Defaults to articles published today.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
 					[
@@ -130,7 +129,7 @@ function register(): void {
 		[
 			'label'               => __( 'Get content', 'hm-abilities-mcp' ),
 			'description'         => __( 'Return a single post/page including its raw block markup.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
 					[
@@ -153,7 +152,7 @@ function register(): void {
 		[
 			'label'               => __( 'Create content', 'hm-abilities-mcp' ),
 			'description'         => __( 'Create a page, post, or custom post type with block markup.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
 					[
@@ -193,7 +192,7 @@ function register(): void {
 		[
 			'label'               => __( 'Update content', 'hm-abilities-mcp' ),
 			'description'         => __( 'Update an existing post/page. Content fully replaces the existing block markup.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
 					[

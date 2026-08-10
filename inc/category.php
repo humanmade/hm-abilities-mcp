@@ -9,7 +9,7 @@ declare( strict_types = 1 );
 
 namespace HM\Abilities\Category;
 
-use const HM\Abilities\Support\CATEGORY;
+use HM\Abilities\Support;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -33,7 +33,7 @@ function register(): void {
 	}
 
 	wp_register_ability_category(
-		CATEGORY,
+		Support\CATEGORY,
 		[
 			'label'       => __( 'HM Abilities', 'hm-abilities-mcp' ),
 			'description' => __( 'Abilities exposed to MCP by the HM Abilities MCP plugin.', 'hm-abilities-mcp' ),

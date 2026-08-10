@@ -9,9 +9,8 @@ declare( strict_types = 1 );
 
 namespace HM\Abilities\Navigation;
 
-use WP_Post;
 use HM\Abilities\Support;
-use const HM\Abilities\Support\CATEGORY;
+use WP_Post;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -39,7 +38,7 @@ function register(): void {
 		[
 			'label'               => __( 'List navigation menus', 'hm-abilities-mcp' ),
 			'description'         => __( 'List all navigation menus (wp_navigation posts).', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema( Support\with_site_id( [] ) ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_menus',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
@@ -58,7 +57,7 @@ function register(): void {
 		[
 			'label'               => __( 'Get navigation menu', 'hm-abilities-mcp' ),
 			'description'         => __( 'Return a navigation menu and its items by ID.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
 					[
@@ -87,7 +86,7 @@ function register(): void {
 		[
 			'label'               => __( 'Update navigation menu', 'hm-abilities-mcp' ),
 			'description'         => __( 'Replace all items of a navigation menu by ID. Items: [{label, url, kind?, children?[]}].', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
 					[

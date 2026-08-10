@@ -31,6 +31,13 @@
         <!-- Requiring inline tags to be on newlines makes render.php partials harder to read. -->
         <exclude name="Squiz.PHP.EmbeddedPhp.ContentBeforeOpen" />
         <exclude name="Squiz.PHP.EmbeddedPhp.ContentAfterEnd" />
+
+        <!--
+        Every module file pairs symbol declarations with the standard WordPress
+        `defined( 'ABSPATH' ) || exit;` guard, which PSR-1 counts as a side
+        effect. The guard is required, so this rule can never be satisfied here.
+        -->
+        <exclude name="PSR1.Files.SideEffects" />
 	</rule>
 
     <rule ref="HM.Files.NamespaceDirectoryName.NoIncDirectory">

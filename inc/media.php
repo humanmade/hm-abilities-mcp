@@ -21,7 +21,6 @@ declare( strict_types = 1 );
 namespace HM\Abilities\Media;
 
 use HM\Abilities\Support;
-use const HM\Abilities\Support\CATEGORY;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -56,7 +55,7 @@ function register(): void {
 		[
 			'label'               => __( 'Upload media', 'hm-abilities-mcp' ),
 			'description'         => __( 'Sideload a file from a URL into the media library and return the new attachment. Dedupes by source URL: if that URL was imported before, the existing attachment is returned unchanged (title and alt overrides are not re-applied).', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
 					[
@@ -396,7 +395,10 @@ function existing_attachment_id( string $source_url ): int {
 			'fields'                 => 'ids',
 			'no_found_rows'          => true,
 			'update_post_term_cache' => false,
-			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Dedupe lookup keyed on the recorded source URL.
+			// An equality lookup on an unindexed meta value is the only way to
+			// resolve a source URL back to its attachment; it is bounded to a
+			// single row and only runs on import.
+			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query,HM.Performance.SlowMetaQuery.nonperformant_comparison -- Dedupe lookup keyed on the recorded source URL.
 			'meta_query'             => [
 				[
 					'key'   => Support\SOURCE_URL_META,

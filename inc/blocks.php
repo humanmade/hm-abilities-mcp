@@ -9,9 +9,8 @@ declare( strict_types = 1 );
 
 namespace HM\Abilities\Blocks;
 
-use WP_Block_Type_Registry;
 use HM\Abilities\Support;
-use const HM\Abilities\Support\CATEGORY;
+use WP_Block_Type_Registry;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -45,7 +44,7 @@ function register(): void {
 		[
 			'label'               => __( 'Validate blocks', 'hm-abilities-mcp' ),
 			'description'         => __( 'Parse block markup and report any block types that are not registered.', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				[
 					'content' => [
@@ -66,7 +65,7 @@ function register(): void {
 		[
 			'label'               => __( 'List block types', 'hm-abilities-mcp' ),
 			'description'         => __( 'List registered block types, optionally filtered by namespace (e.g. "core", "hm-abilities").', 'hm-abilities-mcp' ),
-			'category'            => CATEGORY,
+			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				[
 					'namespace' => [
