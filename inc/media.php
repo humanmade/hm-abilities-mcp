@@ -143,7 +143,7 @@ function register(): void {
  * @return bool|\WP_Error
  */
 function can_upload( $input = null ) {
-	return Support\can_on_site( $input, 'upload_files' );
+	return Support\can_write_on_site( $input, 'upload_files' );
 }
 
 /**

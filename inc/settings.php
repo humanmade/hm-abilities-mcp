@@ -97,7 +97,7 @@ function register(): void {
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema( Support\with_site_id( [] ) ),
 			'execute_callback'    => __NAMESPACE__ . '\\get_settings',
-			'permission_callback' => __NAMESPACE__ . '\\can_manage',
+			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta(
 				[
 					'readonly'    => true,
@@ -116,7 +116,7 @@ function register(): void {
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema( Support\with_site_id( update_properties() ) ),
 			'execute_callback'    => __NAMESPACE__ . '\\update_settings',
-			'permission_callback' => __NAMESPACE__ . '\\can_manage',
+			'permission_callback' => __NAMESPACE__ . '\\can_write',
 			'meta'                => meta(
 				[
 					'readonly'    => false,
@@ -217,16 +217,29 @@ function update_properties(): array {
 }
 
 /**
- * Permission: manage options on the targeted subsite.
+ * Permission: read settings on the targeted subsite.
  *
- * Matches core's `/wp/v2/settings`, which requires `manage_options` to read and
- * to write.
+ * Matches core's `/wp/v2/settings`, which requires `manage_options` to read as
+ * well as to write.
  *
  * @param mixed $input Ability input (read for `site_id`).
  * @return bool|\WP_Error
  */
-function can_manage( $input = null ) {
+function can_read( $input = null ) {
 	return Support\can_on_site( $input, 'manage_options' );
+}
+
+/**
+ * Permission: write settings on the targeted subsite.
+ *
+ * Same capability as reading, but additionally refuses a site that is not
+ * accepting changes.
+ *
+ * @param mixed $input Ability input (read for `site_id`).
+ * @return bool|\WP_Error
+ */
+function can_write( $input = null ) {
+	return Support\can_write_on_site( $input, 'manage_options' );
 }
 
 /**

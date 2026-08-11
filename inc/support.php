@@ -148,13 +148,14 @@ function object_schema( array $properties, array $required = [] ): array {
 /**
  * Build a WP_Error with an HTTP status attached.
  *
- * @param string $code    Machine code.
- * @param string $message Human message.
- * @param int    $status  HTTP status.
+ * @param string               $code    Machine code.
+ * @param string               $message Human message.
+ * @param int                  $status  HTTP status.
+ * @param array<string, mixed> $data    Extra error data merged alongside the status.
  * @return WP_Error
  */
-function error( string $code, string $message, int $status ): WP_Error {
-	return new WP_Error( $code, $message, [ 'status' => $status ] );
+function error( string $code, string $message, int $status, array $data = [] ): WP_Error {
+	return new WP_Error( $code, $message, [ 'status' => $status ] + $data );
 }
 
 /**
@@ -347,6 +348,80 @@ function is_live_site( int $blog_id ): bool {
 	}
 
 	return ! $site->archived && ! $site->spam && ! $site->deleted;
+}
+
+/**
+ * The status flags set on a site, as a list of `archived`/`spam`/`deleted`.
+ *
+ * Empty for a live site, and for a site that does not exist.
+ *
+ * @param int $blog_id Blog ID.
+ * @return string[]
+ */
+function site_status_flags( int $blog_id ): array {
+	$site = is_multisite() ? get_site( $blog_id ) : null;
+
+	if ( ! $site ) {
+		return [];
+	}
+
+	return array_values(
+		array_filter(
+			[ 'archived', 'spam', 'deleted' ],
+			static function ( $flag ) use ( $site ) {
+				return (bool) $site->$flag;
+			}
+		)
+	);
+}
+
+/**
+ * Require that a site is in a state that accepts changes.
+ *
+ * Core stops serving an archived, spam, or deleted site on the front end
+ * (`ms_site_check()`) but places no such guard on programmatic access, so
+ * `switch_to_blog()` would happily write to one. An agent acting on its own
+ * should not be the thing that edits a site the network has taken out of
+ * service, so the write abilities call this and refuse.
+ *
+ * Reads are deliberately unaffected: inspecting an archived site before it is
+ * removed is legitimate, and blocking it would break auditing.
+ *
+ * Always passes off multisite, where no site can hold these flags.
+ *
+ * @param int $blog_id Blog ID, already validated as existing.
+ * @return WP_Error|null Error when the site is not writable, null when it is.
+ */
+function require_live_site( int $blog_id ): ?WP_Error {
+	if ( is_live_site( $blog_id ) ) {
+		return null;
+	}
+
+	/**
+	 * Filters whether the abilities may write to a site that is not live.
+	 *
+	 * Networks that intentionally keep editing archived subsites can return
+	 * true to restore the unguarded behaviour.
+	 *
+	 * @param bool $allow   Whether to allow the write. Default false.
+	 * @param int  $blog_id Blog ID being written to.
+	 */
+	if ( apply_filters( 'hm_abilities_allow_non_live_site_writes', false, $blog_id ) ) {
+		return null;
+	}
+
+	$flags = site_status_flags( $blog_id );
+
+	return error(
+		'hm_abilities_site_not_live',
+		sprintf(
+			/* translators: %s: comma-separated site status flags, e.g. "archived". */
+			__( 'That site is marked %s and does not accept changes. Reading from it is still allowed.', 'hm-abilities-mcp' ),
+			implode( ', ', $flags )
+		),
+		409,
+		[ 'site_status' => $flags ]
+	);
 }
 
 /**
@@ -677,10 +752,45 @@ function on_site( $input, callable $callback ) {
  * @return bool|WP_Error
  */
 function can_on_site( $input, string $cap ) {
+	return check_cap_on_site( $input, $cap, false );
+}
+
+/**
+ * Permission helper: require a capability on the subsite the request targets,
+ * and require that subsite to accept changes.
+ *
+ * The write counterpart to `can_on_site()`. Use it for every ability that
+ * mutates subsite state; see `require_live_site()` for why reads are exempt.
+ *
+ * @param mixed  $input Ability input.
+ * @param string $cap   Required capability.
+ * @return bool|WP_Error
+ */
+function can_write_on_site( $input, string $cap ) {
+	return check_cap_on_site( $input, $cap, true );
+}
+
+/**
+ * Shared body of `can_on_site()` and `can_write_on_site()`.
+ *
+ * @param mixed  $input        Ability input.
+ * @param string $cap          Required capability.
+ * @param bool   $require_live Whether the target site must accept changes.
+ * @return bool|WP_Error
+ */
+function check_cap_on_site( $input, string $cap, bool $require_live ) {
 	$blog_id = resolve_target_site( $input );
 
 	if ( is_wp_error( $blog_id ) ) {
 		return $blog_id;
+	}
+
+	if ( $require_live ) {
+		$not_live = require_live_site( $blog_id );
+
+		if ( $not_live ) {
+			return $not_live;
+		}
 	}
 
 	return with_site(
