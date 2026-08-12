@@ -1,0 +1,25 @@
+name: Build to "release" branch
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: "Update release branch"
+    uses: humanmade/hm-github-actions/.github/workflows/build-and-release-node.yml@1926fac5ec904aef6167fa3ba54477b0d9324462 # v0.4.0
+    with:
+      node_version: 22
+      source_branch: main
+      release_branch: release
+      # PHP-only plugin: no compiled assets, so nothing is force-included.
+      built_asset_paths: ''
+      build_script: echo "No build step required for this PHP-only plugin."
