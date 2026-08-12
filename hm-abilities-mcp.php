@@ -29,5 +29,6 @@ require_once __DIR__ . '/inc/navigation.php';
 require_once __DIR__ . '/inc/settings.php';
 require_once __DIR__ . '/inc/blocks.php';
 require_once __DIR__ . '/inc/block-insights.php';
+require_once __DIR__ . '/inc/sites.php';
 
 bootstrap();

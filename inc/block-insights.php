@@ -24,6 +24,34 @@ defined( 'ABSPATH' ) || exit;
 const SCAN_LIMIT = 500;
 
 /**
+ * Sites tallied per `block-usage-stats` call at network scope: default, then
+ * the hard ceiling.
+ *
+ * Each site here costs a `switch_to_blog`, a query for up to SCAN_LIMIT posts,
+ * and a block parse of every one of them, so the ceiling is deliberately low —
+ * a page of 25 sites is already up to 12,500 post parses in one request.
+ * Callers cover a larger network by following `next_page` across calls.
+ *
+ * @var int
+ */
+const STATS_SITES_DEFAULT = 10;
+const STATS_SITES_MAX     = 25;
+
+/**
+ * Sites checked per `find-missing-block` call: default, then the hard ceiling.
+ *
+ * Roughly SCAN_LIMIT times cheaper per site than the tally above, since only
+ * the one target page per site is parsed, so this page size can be far larger.
+ * The default sits at the ceiling deliberately: a network of 100 live sites or
+ * fewer is then answered completely by one call, and only larger networks —
+ * the ones an unbounded scan would have timed out on — need paging.
+ *
+ * @var int
+ */
+const MISSING_SITES_DEFAULT = 100;
+const MISSING_SITES_MAX     = 100;
+
+/**
  * Wire up the module's hooks.
  *
  * @return void
@@ -52,32 +80,36 @@ function register(): void {
 		'hm-abilities/block-usage-stats',
 		[
 			'label'               => __( 'Block usage stats', 'hm-abilities-mcp' ),
-			'description'         => __( 'Count how often each block type is used, for one site or across the whole multisite network.', 'hm-abilities-mcp' ),
+			'description'         => __( 'Count how often each block type is used, for one site or across a page of multisite network subsites. At network scope one call covers a bounded page of sites; follow next_page in the response to cover the rest.', 'hm-abilities-mcp' ),
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
-				[
-					'scope'     => [
-						'type'        => 'string',
-						'enum'        => [ 'site', 'network' ],
-						'default'     => 'site',
-						'description' => __( '"site" tallies one subsite; "network" aggregates every subsite with a per-site breakdown.', 'hm-abilities-mcp' ),
+				Support\with_site_batch(
+					[
+						'scope'     => [
+							'type'        => 'string',
+							'enum'        => [ 'site', 'network' ],
+							'default'     => 'site',
+							'description' => __( '"site" tallies one subsite; "network" aggregates a page of subsites with a per-site breakdown.', 'hm-abilities-mcp' ),
+						],
+						'site_id'   => [
+							'type'        => 'integer',
+							'minimum'     => 1,
+							'description' => __( 'Blog ID to tally when scope is "site". Defaults to the current site.', 'hm-abilities-mcp' ),
+						],
+						'post_type' => [
+							'type'        => 'string',
+							'enum'        => Support\post_types(),
+							'description' => __( 'Restrict the tally to one post type. Defaults to all supported types.', 'hm-abilities-mcp' ),
+						],
+						'status'    => [
+							'type'    => 'string',
+							'enum'    => Support\list_statuses(),
+							'default' => 'publish',
+						],
 					],
-					'site_id'   => [
-						'type'        => 'integer',
-						'minimum'     => 1,
-						'description' => __( 'Blog ID to tally when scope is "site". Defaults to the current site.', 'hm-abilities-mcp' ),
-					],
-					'post_type' => [
-						'type'        => 'string',
-						'enum'        => Support\post_types(),
-						'description' => __( 'Restrict the tally to one post type. Defaults to all supported types.', 'hm-abilities-mcp' ),
-					],
-					'status'    => [
-						'type'    => 'string',
-						'enum'    => Support\list_statuses(),
-						'default' => 'publish',
-					],
-				]
+					STATS_SITES_DEFAULT,
+					STATS_SITES_MAX
+				)
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\block_usage_stats',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
@@ -124,19 +156,23 @@ function register(): void {
 		'hm-abilities/find-missing-block',
 		[
 			'label'               => __( 'Find missing block', 'hm-abilities-mcp' ),
-			'description'         => __( 'Across the network, report which subsites are missing a given block type on their front page (or a given page path). Example block_name: "core/details".', 'hm-abilities-mcp' ),
+			'description'         => __( 'Report which network subsites are missing a given block type on their front page (or a given page path). Checks a bounded page of subsites per call; follow next_page in the response to cover the rest. Example block_name: "core/details".', 'hm-abilities-mcp' ),
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
-				[
-					'block_name' => [
-						'type'        => 'string',
-						'description' => __( 'Block type to look for, e.g. "core/details" or "core/heading".', 'hm-abilities-mcp' ),
+				Support\with_site_batch(
+					[
+						'block_name' => [
+							'type'        => 'string',
+							'description' => __( 'Block type to look for, e.g. "core/details" or "core/heading".', 'hm-abilities-mcp' ),
+						],
+						'path'       => [
+							'type'        => 'string',
+							'description' => __( 'Page path to check on each subsite (e.g. "about"). Defaults to the front page.', 'hm-abilities-mcp' ),
+						],
 					],
-					'path'       => [
-						'type'        => 'string',
-						'description' => __( 'Page path to check on each subsite (e.g. "about"). Defaults to the front page.', 'hm-abilities-mcp' ),
-					],
-				],
+					MISSING_SITES_DEFAULT,
+					MISSING_SITES_MAX
+				),
 				[ 'block_name' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\find_missing_block',
@@ -180,8 +216,17 @@ function block_usage_stats( $input = null ) {
 		$post_types = [ (string) $input['post_type'] ];
 	}
 
+	$sites = null;
+
 	if ( $scope === 'network' ) {
-		$blog_ids = Support\each_site();
+		$batch = Support\resolve_site_batch( $input, STATS_SITES_DEFAULT, STATS_SITES_MAX );
+
+		if ( is_wp_error( $batch ) ) {
+			return $batch;
+		}
+
+		$blog_ids = $batch['blog_ids'];
+		$sites    = $batch['sites'];
 	} else {
 		$blog_ids = [ isset( $input['site_id'] ) ? (int) $input['site_id'] : get_current_blog_id() ];
 	}
@@ -230,7 +275,12 @@ function block_usage_stats( $input = null ) {
 	];
 
 	if ( $scope === 'network' ) {
-		$result['sites'] = $by_site;
+		$result['sites']      = $by_site;
+		$result['pagination'] = $sites;
+
+		if ( ! empty( $sites['has_more'] ) ) {
+			$result['note'] = partial_note( $sites );
+		}
 	}
 
 	return $result;
@@ -397,10 +447,16 @@ function find_missing_block( $input = null ) {
 	$block_name = trim( (string) $input['block_name'] );
 	$path       = ( isset( $input['path'] ) && is_string( $input['path'] ) ) ? trim( (string) $input['path'] ) : '';
 
+	$batch = Support\resolve_site_batch( $input, MISSING_SITES_DEFAULT, MISSING_SITES_MAX );
+
+	if ( is_wp_error( $batch ) ) {
+		return $batch;
+	}
+
 	$present = [];
 	$missing = [];
 
-	foreach ( Support\each_site() as $blog_id ) {
+	foreach ( $batch['blog_ids'] as $blog_id ) {
 		$row = Support\with_site(
 			(int) $blog_id,
 			static function () use ( $block_name, $path ): array {
@@ -442,7 +498,7 @@ function find_missing_block( $input = null ) {
 		}
 	}
 
-	return [
+	$result = [
 		'block_name'    => $block_name,
 		'target'        => $path !== '' ? $path : 'front-page',
 		'checked_count' => count( $present ) + count( $missing ),
@@ -450,5 +506,31 @@ function find_missing_block( $input = null ) {
 		'missing_count' => count( $missing ),
 		'present'       => $present,
 		'missing'       => $missing,
+		'pagination'    => $batch['sites'],
 	];
+
+	if ( ! empty( $batch['sites']['has_more'] ) ) {
+		$result['note'] = partial_note( $batch['sites'] );
+	}
+
+	return $result;
+}
+
+/**
+ * Warning line for a response that covers only part of the network.
+ *
+ * Counts in a paged response describe the sites in that page alone, so say so
+ * explicitly — a caller that reads them as network totals would under-report.
+ *
+ * @param array<string, mixed> $sites Pagination block from resolve_site_batch().
+ * @return string
+ */
+function partial_note( array $sites ): string {
+	return sprintf(
+		/* translators: 1: sites covered by this response, 2: total sites in the network, 3: next page number. */
+		__( 'Counts cover only the %1$d sites in this page, not the whole network of %2$d. Call again with page %3$d to continue.', 'hm-abilities-mcp' ),
+		(int) $sites['processed'],
+		(int) $sites['total'],
+		(int) $sites['next_page']
+	);
 }

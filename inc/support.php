@@ -148,13 +148,14 @@ function object_schema( array $properties, array $required = [] ): array {
 /**
  * Build a WP_Error with an HTTP status attached.
  *
- * @param string $code    Machine code.
- * @param string $message Human message.
- * @param int    $status  HTTP status.
+ * @param string               $code    Machine code.
+ * @param string               $message Human message.
+ * @param int                  $status  HTTP status.
+ * @param array<string, mixed> $data    Extra error data merged alongside the status.
  * @return WP_Error
  */
-function error( string $code, string $message, int $status ): WP_Error {
-	return new WP_Error( $code, $message, [ 'status' => $status ] );
+function error( string $code, string $message, int $status, array $data = [] ): WP_Error {
+	return new WP_Error( $code, $message, [ 'status' => $status ] + $data );
 }
 
 /**
@@ -313,17 +314,341 @@ function block_outline( array $blocks ): array {
 }
 
 /**
- * All blog IDs to scan. A single-element list of the current blog when this is
- * not a multisite install.
+ * Query args restricting a site lookup to live sites.
  *
- * @return int[]
+ * `WP_Site_Query` leaves these flags unset by default, which returns archived,
+ * spam, and deleted sites alongside live ones. The abilities only ever act on
+ * live sites, so every site lookup passes these.
+ *
+ * @return array<string, int>
  */
-function each_site(): array {
+function live_site_args(): array {
+	return [
+		'archived' => 0,
+		'spam'     => 0,
+		'deleted'  => 0,
+	];
+}
+
+/**
+ * Whether a blog ID belongs to a live site. Always true off multisite.
+ *
+ * @param int $blog_id Blog ID.
+ * @return bool
+ */
+function is_live_site( int $blog_id ): bool {
 	if ( ! is_multisite() ) {
-		return [ get_current_blog_id() ];
+		return true;
 	}
 
-	return array_map( 'intval', get_sites( [ 'number' => 0, 'fields' => 'ids' ] ) );
+	$site = get_site( $blog_id );
+
+	if ( ! $site ) {
+		return false;
+	}
+
+	return ! $site->archived && ! $site->spam && ! $site->deleted;
+}
+
+/**
+ * The status flags set on a site, as a list of `archived`/`spam`/`deleted`.
+ *
+ * Empty for a live site, and for a site that does not exist.
+ *
+ * @param int $blog_id Blog ID.
+ * @return string[]
+ */
+function site_status_flags( int $blog_id ): array {
+	$site = is_multisite() ? get_site( $blog_id ) : null;
+
+	if ( ! $site ) {
+		return [];
+	}
+
+	return array_values(
+		array_filter(
+			[ 'archived', 'spam', 'deleted' ],
+			static function ( $flag ) use ( $site ) {
+				return (bool) $site->$flag;
+			}
+		)
+	);
+}
+
+/**
+ * Require that a site is in a state that accepts changes.
+ *
+ * Core stops serving an archived, spam, or deleted site on the front end
+ * (`ms_site_check()`) but places no such guard on programmatic access, so
+ * `switch_to_blog()` would happily write to one. An agent acting on its own
+ * should not be the thing that edits a site the network has taken out of
+ * service, so the write abilities call this and refuse.
+ *
+ * Reads are deliberately unaffected: inspecting an archived site before it is
+ * removed is legitimate, and blocking it would break auditing.
+ *
+ * Always passes off multisite, where no site can hold these flags.
+ *
+ * @param int $blog_id Blog ID, already validated as existing.
+ * @return WP_Error|null Error when the site is not writable, null when it is.
+ */
+function require_live_site( int $blog_id ): ?WP_Error {
+	if ( is_live_site( $blog_id ) ) {
+		return null;
+	}
+
+	/**
+	 * Filters whether the abilities may write to a site that is not live.
+	 *
+	 * Networks that intentionally keep editing archived subsites can return
+	 * true to restore the unguarded behaviour.
+	 *
+	 * @param bool $allow   Whether to allow the write. Default false.
+	 * @param int  $blog_id Blog ID being written to.
+	 */
+	if ( apply_filters( 'hm_abilities_allow_non_live_site_writes', false, $blog_id ) ) {
+		return null;
+	}
+
+	$flags = site_status_flags( $blog_id );
+
+	return error(
+		'hm_abilities_site_not_live',
+		sprintf(
+			/* translators: %s: comma-separated site status flags, e.g. "archived". */
+			__( 'That site is marked %s and does not accept changes. Reading from it is still allowed.', 'hm-abilities-mcp' ),
+			implode( ', ', $flags )
+		),
+		409,
+		[ 'site_status' => $flags ]
+	);
+}
+
+/**
+ * Total number of live sites in the network. Always 1 off multisite.
+ *
+ * @return int
+ */
+function count_sites(): int {
+	if ( ! is_multisite() ) {
+		return 1;
+	}
+
+	return (int) get_sites( live_site_args() + [ 'count' => true ] );
+}
+
+/**
+ * One bounded page of live blog IDs, ordered by ID so paging is stable across
+ * calls.
+ *
+ * A single-element list of the current blog when this is not a multisite
+ * install, since no other blog exists to page through.
+ *
+ * @param int $per_page Sites per page.
+ * @param int $page     1-based page number.
+ * @return int[]
+ */
+function site_page( int $per_page, int $page ): array {
+	if ( ! is_multisite() ) {
+		return $page === 1 ? [ get_current_blog_id() ] : [];
+	}
+
+	$sites = get_sites(
+		live_site_args() + [
+			'number'  => $per_page,
+			'offset'  => ( $page - 1 ) * $per_page,
+			'fields'  => 'ids',
+			'orderby' => 'id',
+			'order'   => 'ASC',
+		]
+	);
+
+	return array_map( 'intval', $sites );
+}
+
+/**
+ * Validate a single blog ID against the install.
+ *
+ * On multisite an unknown blog ID is a 404 and a non-positive ID a 400. On
+ * single site any ID other than the current blog is rejected, since no other
+ * blog exists.
+ *
+ * @param int $site_id Blog ID to check.
+ * @return int|WP_Error The blog ID, or an error.
+ */
+function validate_blog_id( int $site_id ) {
+	if ( $site_id <= 0 ) {
+		return error( 'hm_abilities_invalid_site_id', __( 'The site_id must be a positive integer.', 'hm-abilities-mcp' ), 400 );
+	}
+
+	if ( ! is_multisite() ) {
+		if ( $site_id !== get_current_blog_id() ) {
+			return error( 'hm_abilities_not_multisite', __( 'This is not a multisite install; omit site_id or pass the current site.', 'hm-abilities-mcp' ), 400 );
+		}
+
+		return $site_id;
+	}
+
+	if ( ! get_site( $site_id ) ) {
+		return error( 'hm_abilities_site_not_found', __( 'No network site matches that site_id.', 'hm-abilities-mcp' ), 404 );
+	}
+
+	return $site_id;
+}
+
+/**
+ * Standard `site_ids`/`per_page`/`page` input-schema properties for an ability
+ * that works across several subsites in one call.
+ *
+ * Merge into an ability's properties. A caller either names the sites it wants
+ * with `site_ids`, or pages through the network with `per_page` and `page`.
+ *
+ * @param array<string, mixed> $properties        Existing schema properties.
+ * @param int                  $default_per_page  Default sites per page.
+ * @param int                  $max               Largest page size this ability allows.
+ * @return array<string, mixed> Properties with the batch fields added.
+ */
+function with_site_batch( array $properties, int $default_per_page, int $max ): array {
+	$properties['site_ids'] = [
+		'type'        => 'array',
+		'items'       => [
+			'type'    => 'integer',
+			'minimum' => 1,
+		],
+		'maxItems'    => $max,
+		/* translators: %d: largest number of sites allowed in one call. */
+		'description' => sprintf( __( 'Blog IDs to act on, at most %d per call. Omit to page through the whole network with per_page and page.', 'hm-abilities-mcp' ), $max ),
+	];
+
+	$properties['per_page'] = [
+		'type'        => 'integer',
+		'default'     => $default_per_page,
+		'minimum'     => 1,
+		'maximum'     => $max,
+		/* translators: %d: largest number of sites allowed in one call. */
+		'description' => sprintf( __( 'Sites to process per call when paging the network. Capped at %d so one call stays within a single request.', 'hm-abilities-mcp' ), $max ),
+	];
+
+	$properties['page'] = [
+		'type'        => 'integer',
+		'default'     => 1,
+		'minimum'     => 1,
+		'description' => __( 'Which page of network sites to process. Follow the next_page value in the response to cover the rest.', 'hm-abilities-mcp' ),
+	];
+
+	return $properties;
+}
+
+/**
+ * Resolve the bounded set of blogs an ability call should touch.
+ *
+ * Returns an explicitly named set when the caller passes `site_ids`, otherwise
+ * one page of the network. Either way the count is capped at `$max`, so a call
+ * costs the same whether the network has ten sites or ten thousand. The
+ * returned `sites` block tells the caller whether more pages remain, so the
+ * client drives the loop across calls instead of PHP looping inside one request.
+ *
+ * Only live sites are considered: archived, spam, and deleted sites are skipped
+ * when paging, and named explicitly they are an error.
+ *
+ * @param mixed $input            Ability input (read for `site_ids`, `per_page`, `page`).
+ * @param int   $default_per_page Default sites per page.
+ * @param int   $max              Largest page size this ability allows.
+ * @return array{blog_ids: int[], sites: array<string, mixed>}|WP_Error
+ */
+function resolve_site_batch( $input, int $default_per_page, int $max ) {
+	$input = is_array( $input ) ? $input : [];
+
+	if ( isset( $input['site_ids'] ) ) {
+		return resolve_explicit_sites( $input['site_ids'], $max );
+	}
+
+	$per_page = isset( $input['per_page'] ) ? min( $max, max( 1, (int) $input['per_page'] ) ) : $default_per_page;
+	$page     = isset( $input['page'] ) ? max( 1, (int) $input['page'] ) : 1;
+
+	$blog_ids = site_page( $per_page, $page );
+	$total    = count_sites();
+	$has_more = ( $page * $per_page ) < $total;
+
+	return [
+		'blog_ids' => $blog_ids,
+		'sites'    => [
+			'selection'   => 'network_page',
+			'total'       => $total,
+			'page'        => $page,
+			'per_page'    => $per_page,
+			'processed'   => count( $blog_ids ),
+			'has_more'    => $has_more,
+			'next_page'   => $has_more ? $page + 1 : null,
+			'total_pages' => (int) ceil( $total / $per_page ),
+		],
+	];
+}
+
+/**
+ * Validate a caller-supplied `site_ids` list into a bounded blog ID list.
+ *
+ * Rejects an over-long list rather than silently truncating it, so a caller
+ * never believes it covered sites the call skipped.
+ *
+ * @param mixed $site_ids Raw `site_ids` input.
+ * @param int   $max      Largest number of sites allowed in one call.
+ * @return array{blog_ids: int[], sites: array<string, mixed>}|WP_Error
+ */
+function resolve_explicit_sites( $site_ids, int $max ) {
+	if ( ! is_array( $site_ids ) || $site_ids === [] ) {
+		return error( 'hm_abilities_invalid_site_ids', __( 'The site_ids must be a non-empty array of blog IDs.', 'hm-abilities-mcp' ), 400 );
+	}
+
+	if ( count( $site_ids ) > $max ) {
+		return error(
+			'hm_abilities_too_many_sites',
+			sprintf(
+				/* translators: 1: number of sites requested, 2: largest number allowed. */
+				__( 'Too many sites in one call: %1$d requested, %2$d is the maximum. Split the list across several calls.', 'hm-abilities-mcp' ),
+				count( $site_ids ),
+				$max
+			),
+			400
+		);
+	}
+
+	$blog_ids = [];
+
+	foreach ( $site_ids as $site_id ) {
+		$valid = validate_blog_id( (int) $site_id );
+
+		if ( is_wp_error( $valid ) ) {
+			return $valid;
+		}
+
+		if ( ! is_live_site( $valid ) ) {
+			return error(
+				'hm_abilities_site_not_live',
+				sprintf(
+					/* translators: %d: blog ID. */
+					__( 'Site %d is archived, spam, or deleted. These abilities only act on live sites.', 'hm-abilities-mcp' ),
+					$valid
+				),
+				400
+			);
+		}
+
+		if ( ! in_array( $valid, $blog_ids, true ) ) {
+			$blog_ids[] = $valid;
+		}
+	}
+
+	return [
+		'blog_ids' => $blog_ids,
+		'sites'    => [
+			'selection' => 'explicit',
+			'total'     => count( $blog_ids ),
+			'processed' => count( $blog_ids ),
+			'has_more'  => false,
+			'next_page' => null,
+		],
+	];
 }
 
 /**
@@ -389,25 +714,7 @@ function resolve_target_site( $input ) {
 		return get_current_blog_id();
 	}
 
-	$site_id = (int) $input['site_id'];
-
-	if ( $site_id <= 0 ) {
-		return error( 'hm_abilities_invalid_site_id', __( 'The site_id must be a positive integer.', 'hm-abilities-mcp' ), 400 );
-	}
-
-	if ( ! is_multisite() ) {
-		if ( $site_id !== get_current_blog_id() ) {
-			return error( 'hm_abilities_not_multisite', __( 'This is not a multisite install; omit site_id or pass the current site.', 'hm-abilities-mcp' ), 400 );
-		}
-
-		return $site_id;
-	}
-
-	if ( ! get_site( $site_id ) ) {
-		return error( 'hm_abilities_site_not_found', __( 'No network site matches that site_id.', 'hm-abilities-mcp' ), 404 );
-	}
-
-	return $site_id;
+	return validate_blog_id( (int) $input['site_id'] );
 }
 
 /**
@@ -445,10 +752,45 @@ function on_site( $input, callable $callback ) {
  * @return bool|WP_Error
  */
 function can_on_site( $input, string $cap ) {
+	return check_cap_on_site( $input, $cap, false );
+}
+
+/**
+ * Permission helper: require a capability on the subsite the request targets,
+ * and require that subsite to accept changes.
+ *
+ * The write counterpart to `can_on_site()`. Use it for every ability that
+ * mutates subsite state; see `require_live_site()` for why reads are exempt.
+ *
+ * @param mixed  $input Ability input.
+ * @param string $cap   Required capability.
+ * @return bool|WP_Error
+ */
+function can_write_on_site( $input, string $cap ) {
+	return check_cap_on_site( $input, $cap, true );
+}
+
+/**
+ * Shared body of `can_on_site()` and `can_write_on_site()`.
+ *
+ * @param mixed  $input        Ability input.
+ * @param string $cap          Required capability.
+ * @param bool   $require_live Whether the target site must accept changes.
+ * @return bool|WP_Error
+ */
+function check_cap_on_site( $input, string $cap, bool $require_live ) {
 	$blog_id = resolve_target_site( $input );
 
 	if ( is_wp_error( $blog_id ) ) {
 		return $blog_id;
+	}
+
+	if ( $require_live ) {
+		$not_live = require_live_site( $blog_id );
+
+		if ( $not_live ) {
+			return $not_live;
+		}
 	}
 
 	return with_site(
@@ -487,14 +829,18 @@ function static_front_page_id(): int {
 }
 
 /**
- * Resolve a front-end URL to the network blog that serves it.
+ * Resolve a front-end URL to the live network blog that serves it.
  *
  * Matches the URL host and the longest site path prefix, so a subdirectory
  * subsite (e.g. `/breeze/`) wins over the root site (`/`). Returns the current
  * blog ID unchanged on a single-site install.
  *
+ * Delegates the match to core's `get_site_by_path()`, which queries only the
+ * candidate path segments rather than loading the network, and handles the
+ * `www` variants and subdirectory layouts a hand-rolled loop would miss.
+ *
  * @param string $url Front-end URL.
- * @return int|WP_Error Blog ID, or an error if the URL is unparseable/unmatched.
+ * @return int|WP_Error Blog ID, or an error if the URL is unparseable, unmatched, or not live.
  */
 function resolve_site_from_url( string $url ) {
 	$url = trim( $url );
@@ -516,27 +862,27 @@ function resolve_site_from_url( string $url ) {
 	$host = strtolower( (string) $parts['host'] );
 	$path = trailingslashit( isset( $parts['path'] ) ? (string) $parts['path'] : '/' );
 
-	$best     = 0;
-	$best_len = -1;
+	$site = get_site_by_path( $host, $path );
 
-	foreach ( get_sites( [ 'number' => 0 ] ) as $site ) {
-		if ( strtolower( (string) $site->domain ) !== $host ) {
-			continue;
-		}
-
-		$site_path = (string) $site->path;
-
-		if ( strpos( $path, $site_path ) === 0 && strlen( $site_path ) > $best_len ) {
-			$best     = (int) $site->blog_id;
-			$best_len = strlen( $site_path );
-		}
-	}
-
-	if ( ! $best ) {
+	if ( ! $site ) {
 		return error( 'hm_abilities_site_not_found', __( 'No network site matches that URL.', 'hm-abilities-mcp' ), 404 );
 	}
 
-	return $best;
+	$blog_id = (int) $site->blog_id;
+
+	if ( ! is_live_site( $blog_id ) ) {
+		return error(
+			'hm_abilities_site_not_live',
+			sprintf(
+				/* translators: %d: blog ID. */
+				__( 'Site %d is archived, spam, or deleted. These abilities only act on live sites.', 'hm-abilities-mcp' ),
+				$blog_id
+			),
+			400
+		);
+	}
+
+	return $blog_id;
 }
 
 /**

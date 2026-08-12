@@ -249,7 +249,7 @@ function can_read( $input = null ) {
  * @return bool|\WP_Error
  */
 function can_write( $input = null ) {
-	return Support\can_on_site( $input, 'manage_options' );
+	return Support\can_write_on_site( $input, 'manage_options' );
 }
 
 /**
