@@ -9,6 +9,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: "Update release branch"
@@ -17,4 +20,6 @@ jobs:
       node_version: 22
       source_branch: main
       release_branch: release
-      built_asset_paths: build
+      # PHP-only plugin: no compiled assets, so nothing is force-included.
+      built_asset_paths: ''
+      build_script: echo "No build step required for this PHP-only plugin."

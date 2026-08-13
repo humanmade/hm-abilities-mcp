@@ -1,0 +1,25 @@
+# Keeps development files out of the archive GitHub generates for a tag, which is
+# what `composer require` downloads. Mirrors .distignore, which covers the other
+# packaging route (`wp dist-archive`) — the two lists have to be changed together.
+#
+# This does NOT slim the `release` branch itself. That branch is a full mirror of
+# main: hm-github-actions' build-to-release-branch action reverse-applies the whole
+# source diff and reads neither this file nor .distignore. Only what is *extracted
+# from* a tag is filtered.
+#
+# composer.json is deliberately absent — see .distignore for why.
+
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/.distignore export-ignore
+/.github export-ignore
+
+/.phpcs.xml export-ignore
+/.wp-env.json export-ignore
+/package.json export-ignore
+/package-lock.json export-ignore
+/composer.lock export-ignore
+
+/CONTRIBUTING.md export-ignore
+/docs export-ignore
+/.remember export-ignore
