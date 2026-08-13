@@ -1,0 +1,57 @@
+name: Tag and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0) — must match the plugin header Version.'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  tag_and_release:
+    name: Tag and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: release
+          # Full history and tags, so the tag-exists check below can see them.
+          fetch-depth: 0
+
+      - name: Abort if tag already exists
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            echo "::error::Tag ${VERSION} already exists."
+            exit 1
+          fi
+
+      - name: Verify plugin header matches tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          header="$( sed -n 's/^ \* Version: *//p' hm-abilities-mcp.php | tr -d '[:space:]' )"
+          if [ "${VERSION#v}" != "${header}" ]; then
+            echo "::error::Tag ${VERSION} does not match plugin header Version: ${header}"
+            exit 1
+          fi
+
+      - name: Resolve release commit
+        id: commit
+        run: echo "sha=$( git rev-parse HEAD )" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag and GitHub Release
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          tag: ${{ inputs.version }}
+          commit: ${{ steps.commit.outputs.sha }}
+          name: ${{ inputs.version }}
+          generateReleaseNotes: true
+          draft: false
+          prerelease: false

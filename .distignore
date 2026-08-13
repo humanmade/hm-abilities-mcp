@@ -1,0 +1,36 @@
+# Excluded from the distributed plugin. One gitignore-style pattern per line,
+# the format wp-cli/dist-archive-command reads.
+#
+# composer.json is deliberately NOT listed. It carries `type: wordpress-plugin`,
+# which is what lets this be installed as a composer dependency; require-dev is the
+# only dev-facing part of it and composer skips that for an installed package.
+#
+# Mirrored by .gitattributes, which covers the other packaging route — the archive
+# GitHub generates for a tag, which is what `composer require` downloads. Neither
+# file reads the other, so the two lists have to be changed together.
+
+# Version control and CI
+.git
+.gitignore
+.distignore
+.gitattributes
+.github
+
+# Dev tooling config
+.phpcs.xml
+.wp-env.json
+package.json
+package-lock.json
+composer.lock
+
+# Dev dependencies. Neither is needed at runtime — the plugin has no autoloader,
+# it requires inc/*.php directly, and composer.lock is ignored for an installed package.
+node_modules
+vendor
+
+# Repo-contributor docs and internal notes. README.md ships; these do not.
+CONTRIBUTING.md
+docs
+.remember
+
+.DS_Store
