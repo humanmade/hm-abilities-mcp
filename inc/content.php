@@ -266,14 +266,14 @@ function list_content( $input = null ) {
 
 			$type = ( isset( $input['post_type'] ) && in_array( $input['post_type'], Support\post_types(), true ) ) ? $input['post_type'] : 'page';
 
-			$status = ( isset( $input['status'] ) && in_array( $input['status'], Support\list_statuses(), true ) ) ? $input['status'] : 'any';
-
-			$query = [
-				'post_type'      => $type,
-				'post_status'    => $status,
-				'posts_per_page' => isset( $input['per_page'] ) ? min( Support\MAX_PER_PAGE, max( 1, (int) $input['per_page'] ) ) : 20,
-				'paged'          => isset( $input['page'] ) ? max( 1, (int) $input['page'] ) : 1,
-			];
+			$query = array_merge(
+				[
+					'post_type'      => $type,
+					'posts_per_page' => isset( $input['per_page'] ) ? min( Support\MAX_PER_PAGE, max( 1, (int) $input['per_page'] ) ) : 20,
+					'paged'          => isset( $input['page'] ) ? max( 1, (int) $input['page'] ) : 1,
+				],
+				Support\status_query_args( $input['status'] ?? null )
+			);
 
 			if ( ! empty( $input['search'] ) ) {
 				$query['s'] = (string) $input['search'];
@@ -408,6 +408,10 @@ function get_content( $input = null ) {
 
 			if ( ! in_array( $post->post_type, Support\post_types(), true ) ) {
 				return Support\error( 'hm_abilities_forbidden', __( 'That post type is not available through this ability.', 'hm-abilities-mcp' ), 403 );
+			}
+
+			if ( ! current_user_can( 'read_post', $post->ID ) ) {
+				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to read that post.', 'hm-abilities-mcp' ), 403 );
 			}
 
 			return Support\format_post( $post, true );

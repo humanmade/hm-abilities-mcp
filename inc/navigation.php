@@ -15,6 +15,16 @@ use WP_Post;
 defined( 'ABSPATH' ) || exit;
 
 /**
+ * Post statuses a navigation menu may be in to be read or written through
+ * these abilities. Excludes `trash` (and every other status), so a deleted
+ * menu is neither returned by get-navigation nor overwritten by
+ * update-navigation once it is gone.
+ *
+ * @var string[]
+ */
+const ALLOWED_STATUSES = [ 'publish', 'draft' ];
+
+/**
  * Wire up the module's hooks.
  *
  * @return void
@@ -194,6 +204,9 @@ function list_menus( $input = null ) {
 /**
  * Get a navigation menu's items.
  *
+ * A menu outside `ALLOWED_STATUSES` 404s, and the caller must hold `read_post`
+ * on the menu itself.
+ *
  * @param mixed $input Ability input.
  * @return array<string, mixed>|\WP_Error
  */
@@ -209,8 +222,12 @@ function get_menu( $input = null ) {
 
 			$post = get_post( $id );
 
-			if ( ! $post instanceof WP_Post || $post->post_type !== 'wp_navigation' ) {
+			if ( ! $post instanceof WP_Post || $post->post_type !== 'wp_navigation' || ! in_array( $post->post_status, ALLOWED_STATUSES, true ) ) {
 				return Support\error( 'hm_abilities_not_found', __( 'No navigation menu found for that ID.', 'hm-abilities-mcp' ), 404 );
+			}
+
+			if ( ! current_user_can( 'read_post', $post->ID ) ) {
+				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to read that navigation menu.', 'hm-abilities-mcp' ), 403 );
 			}
 
 			return [

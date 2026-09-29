@@ -67,6 +67,48 @@ function list_statuses(): array {
 }
 
 /**
+ * Statuses that need `edit_others_posts` to see beyond your own.
+ *
+ * Excludes `private`, which the `readable` perm already gates on the narrower
+ * `read_private_posts`.
+ *
+ * @var string[]
+ */
+const UNPUBLISHED_STATUSES = [ 'draft', 'pending', 'future' ];
+
+/**
+ * Resolve a `status` input into `post_status` and `perm` query arguments
+ * scoped to what the caller may read.
+ *
+ * `any` is expanded into concrete statuses: `WP_Query` reads a literal `any`
+ * as a NOT IN over the hidden statuses and never applies `perm`.
+ *
+ * @param mixed $status Raw `status` input.
+ * @return array{post_status: string[], perm: string}
+ */
+function status_query_args( $status ): array {
+	$requested = ( is_string( $status ) && in_array( $status, list_statuses(), true ) ) ? $status : 'any';
+
+	if ( $requested !== 'any' ) {
+		return [
+			'post_status' => [ $requested ],
+			'perm'        => in_array( $requested, UNPUBLISHED_STATUSES, true ) ? 'editable' : 'readable',
+		];
+	}
+
+	$statuses = array_values( get_post_stati( [ 'exclude_from_search' => false ] ) );
+
+	if ( ! current_user_can( 'edit_others_posts' ) ) {
+		$statuses = array_values( array_diff( $statuses, UNPUBLISHED_STATUSES ) );
+	}
+
+	return [
+		'post_status' => $statuses,
+		'perm'        => 'readable',
+	];
+}
+
+/**
  * Shape a post for ability output.
  *
  * @param WP_Post $post         Post object.

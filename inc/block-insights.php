@@ -289,21 +289,25 @@ function block_usage_stats( $input = null ) {
 /**
  * Scan the current blog's content and tally block usage.
  *
+ * Unpublished statuses are scoped to what the caller may read.
+ *
  * @param string[] $post_types Post types to scan.
  * @param string   $status     Post status filter ("any" or a concrete status).
  * @return array{tally: array<string,int>, post_count: int, truncated: bool, summary: array<string,mixed>}
  */
 function scan_site( array $post_types, string $status ): array {
 	$posts = get_posts(
-		[
-			'post_type'        => $post_types,
-			'post_status'      => $status,
-			'posts_per_page'   => SCAN_LIMIT + 1,
-			'orderby'          => 'ID',
-			'order'            => 'ASC',
-			'suppress_filters' => false,
-			'no_found_rows'    => true,
-		]
+		array_merge(
+			[
+				'post_type'        => $post_types,
+				'posts_per_page'   => SCAN_LIMIT + 1,
+				'orderby'          => 'ID',
+				'order'            => 'ASC',
+				'suppress_filters' => false,
+				'no_found_rows'    => true,
+			],
+			Support\status_query_args( $status )
+		)
 	);
 
 	$truncated = count( $posts ) > SCAN_LIMIT;
@@ -408,6 +412,10 @@ function format_page_blocks( int $post_id, bool $include_outline ) {
 		return Support\error( 'hm_abilities_not_found', __( 'No page found for that ID on the target site.', 'hm-abilities-mcp' ), 404 );
 	}
 
+	if ( ! current_user_can( 'read_post', $post->ID ) ) {
+		return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to read that page.', 'hm-abilities-mcp' ), 403 );
+	}
+
 	$tally = Support\tally_blocks( $post->post_content );
 
 	$result = [
@@ -463,8 +471,10 @@ function find_missing_block( $input = null ) {
 				$summary = Support\current_site_summary();
 
 				if ( $path !== '' ) {
+					// `get_page_by_path()` carries no status clause, so a page
+					// the caller may not read is treated as absent.
 					$page    = get_page_by_path( $path, OBJECT, Support\post_types() );
-					$post_id = $page instanceof WP_Post ? $page->ID : 0;
+					$post_id = ( $page instanceof WP_Post && current_user_can( 'read_post', $page->ID ) ) ? $page->ID : 0;
 				} else {
 					$post_id = Support\static_front_page_id();
 				}
