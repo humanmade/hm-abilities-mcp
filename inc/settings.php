@@ -322,9 +322,8 @@ function snapshot(): array {
 /**
  * Output schema for `snapshot()`, which both settings abilities return.
  *
- * Keys and types come from `settings_map()`, the same source the snapshot
- * reads, so a key added there appears here too. Descriptions are borrowed from
- * the write schema, which documents the same keys.
+ * Keys and types come from `settings_map()`, so a key added there carries
+ * through. Descriptions are borrowed from the write schema.
  *
  * @return array<string, mixed>
  */

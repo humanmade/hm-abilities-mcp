@@ -1494,13 +1494,13 @@ function blocks_to_items( array $blocks ): array {
 /**
  * Output schema for navigation items, describing `markup_to_nav_items()`.
  *
- * `children` nests items of this same shape and carries only a submenu's own
- * entries, so it is described rather than declared: the validator this schema
- * reaches resolves no `$ref`, and an inlined copy would bound the depth.
+ * `children` nests items of this same shape and is described rather than
+ * declared: the validator resolves no `$ref`.
  *
+ * @param string $description What the list holds. Omitted when empty.
  * @return array<string, mixed>
  */
-function nav_items_schema(): array {
+function nav_items_schema( string $description = '' ): array {
 	return output_list(
 		output_object(
 			[
@@ -1513,6 +1513,7 @@ function nav_items_schema(): array {
 				),
 			],
 			[ 'label', 'url', 'kind' ]
-		)
+		),
+		$description
 	);
 }

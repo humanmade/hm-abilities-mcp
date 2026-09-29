@@ -107,9 +107,7 @@ function register(): void {
 				[
 					'id'    => Support\prop( 'integer', __( 'wp_navigation post ID.', 'hm-abilities-mcp' ) ),
 					'title' => Support\prop( 'string', __( 'Menu title.', 'hm-abilities-mcp' ) ),
-					'items' => Support\nav_items_schema() + [
-						'description' => __( 'The menu entries, in order.', 'hm-abilities-mcp' ),
-					],
+					'items' => Support\nav_items_schema( __( 'The menu entries, in order.', 'hm-abilities-mcp' ) ),
 				],
 				[ 'id', 'title', 'items' ]
 			),
