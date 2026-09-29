@@ -21,6 +21,7 @@ declare( strict_types = 1 );
 namespace HM\Abilities\Media;
 
 use HM\Abilities\Support;
+use WP_Http;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -30,6 +31,13 @@ defined( 'ABSPATH' ) || exit;
  * @var int
  */
 const DEFAULT_MAX_BYTES = 67108864; // 64 MB.
+
+/**
+ * Largest number of redirects the sideload follows.
+ *
+ * @var int
+ */
+const MAX_REDIRECTS = 3;
 
 /**
  * Wire up the module's hooks.
@@ -178,8 +186,12 @@ function sideload( array $input ) {
 		return Support\error( 'hm_abilities_invalid_source_url', __( 'The source_url is not a valid, fetchable URL.', 'hm-abilities-mcp' ), 400 );
 	}
 
-	if ( ! source_host_allowed( $source_url ) ) {
-		return Support\error( 'hm_abilities_forbidden_url', __( 'The source_url host is not permitted.', 'hm-abilities-mcp' ), 403 );
+	// Screened again per hop inside the fetch; this rejects a bad host early,
+	// before a temp file is created or the dedupe lookup runs.
+	$screened = resolve_source_target( $source_url );
+
+	if ( is_wp_error( $screened ) ) {
+		return $screened;
 	}
 
 	$post_id = isset( $input['post_id'] ) && is_int( $input['post_id'] ) && $input['post_id'] > 0 ? $input['post_id'] : 0;
@@ -234,23 +246,23 @@ function sideload( array $input ) {
 }
 
 /**
- * Decide whether the ability may fetch from the given URL's host.
+ * Resolve a source URL's host and return the addresses the fetch may use.
  *
- * `wp_http_validate_url()` only screens IPv4 RFC1918 ranges, so it lets through
- * the cloud-metadata address (169.254.169.254) and every IPv6 loopback/ULA
- * target. This closes those gaps and, when the
- * `hm_abilities_media_allowed_source_hosts` filter returns a non-empty list,
- * restricts sideloading to those hosts (recommended for site-to-site sync).
+ * Screens IPv4 and IPv6 against the private and reserved ranges. A non-empty
+ * `hm_abilities_media_allowed_source_hosts` filter restricts to those hosts
+ * and skips the address screen. A host that resolves to nothing is refused.
  *
  * @param string $url Validated source URL.
- * @return bool
+ * @return string[]|WP_Error Addresses to connect to, or an error.
  */
-function source_host_allowed( string $url ): bool {
+function resolve_source_target( string $url ) {
 	$host = wp_parse_url( $url, PHP_URL_HOST );
 
 	if ( ! is_string( $host ) || $host === '' ) {
-		return false;
+		return Support\error( 'hm_abilities_invalid_source', __( 'Could not read a host from that source URL.', 'hm-abilities-mcp' ), 400 );
 	}
+
+	$ips = resolve_host_ips( $host );
 
 	/**
 	 * Filters the hosts the media sideload ability may fetch from.
@@ -264,16 +276,24 @@ function source_host_allowed( string $url ): bool {
 	$allowed = apply_filters( 'hm_abilities_media_allowed_source_hosts', [] );
 
 	if ( is_array( $allowed ) && $allowed !== [] ) {
-		return in_array( strtolower( $host ), array_map( 'strtolower', $allowed ), true );
+		if ( ! in_array( strtolower( $host ), array_map( 'strtolower', $allowed ), true ) ) {
+			return Support\error( 'hm_abilities_source_not_allowed', __( 'That host is not in the allowed source list for this site.', 'hm-abilities-mcp' ), 403 );
+		}
+
+		return $ips;
 	}
 
-	foreach ( resolve_host_ips( $host ) as $ip ) {
+	if ( $ips === [] ) {
+		return Support\error( 'hm_abilities_source_not_allowed', __( 'That source host could not be resolved.', 'hm-abilities-mcp' ), 400 );
+	}
+
+	foreach ( $ips as $ip ) {
 		if ( ! filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) {
-			return false;
+			return Support\error( 'hm_abilities_source_not_allowed', __( 'That source host resolves to a private or reserved address.', 'hm-abilities-mcp' ), 403 );
 		}
 	}
 
-	return true;
+	return $ips;
 }
 
 /**
@@ -321,11 +341,107 @@ function resolve_host_ips( string $host ): array {
 }
 
 /**
- * Download a URL to a temp file, bounding the response size and request time.
+ * Fetch a URL to a temp file, screening and pinning every hop.
  *
- * Uses the safe HTTP path (`wp_safe_remote_get()` re-validates the URL and
- * every redirect) and caps the body so an allowed-but-hostile source cannot
- * fill the temp disk.
+ * Core's redirect handling is off: each iteration screens the URL's addresses,
+ * connects to one of them, then reads the next `Location`. Stops after
+ * MAX_REDIRECTS hops.
+ *
+ * @param string $url       Validated source URL.
+ * @param string $temp      Temp file to stream into.
+ * @param int    $max_bytes Largest body to accept.
+ * @return array<string, mixed>|\WP_Error Response array, or an error.
+ */
+function fetch_pinned( string $url, string $temp, int $max_bytes ) {
+	$hops = 0;
+
+	while ( true ) {
+		$ips = resolve_source_target( $url );
+
+		if ( is_wp_error( $ips ) ) {
+			return $ips;
+		}
+
+		$response = request_pinned( $url, (string) reset( $ips ), $temp, $max_bytes );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+
+		if ( $code < 300 || $code >= 400 ) {
+			return $response;
+		}
+
+		++$hops;
+
+		if ( $hops > MAX_REDIRECTS ) {
+			return Support\error( 'hm_abilities_download_failed', __( 'The source redirected too many times.', 'hm-abilities-mcp' ), 502 );
+		}
+
+		$location = wp_remote_retrieve_header( $response, 'location' );
+
+		if ( ! is_string( $location ) || $location === '' ) {
+			return Support\error( 'hm_abilities_download_failed', __( 'The source returned a redirect with no destination.', 'hm-abilities-mcp' ), 502 );
+		}
+
+		$next = wp_http_validate_url( WP_Http::make_absolute_url( $location, $url ) );
+
+		if ( ! $next ) {
+			return Support\error( 'hm_abilities_source_not_allowed', __( 'The source redirected to a URL that is not allowed.', 'hm-abilities-mcp' ), 403 );
+		}
+
+		$url = $next;
+	}
+}
+
+/**
+ * Run one request with the connection pinned to a screened address.
+ *
+ * The pin is registered for this request only, and does not apply where the
+ * request does not go through curl.
+ *
+ * @param string $url       URL to fetch.
+ * @param string $ip        Screened address to connect to.
+ * @param string $temp      Temp file to stream into.
+ * @param int    $max_bytes Largest body to accept.
+ * @return array<string, mixed>|\WP_Error
+ */
+function request_pinned( string $url, string $ip, string $temp, int $max_bytes ) {
+	$host   = (string) wp_parse_url( $url, PHP_URL_HOST );
+	$scheme = (string) wp_parse_url( $url, PHP_URL_SCHEME );
+	$port   = (int) ( wp_parse_url( $url, PHP_URL_PORT ) ?: ( $scheme === 'https' ? 443 : 80 ) );
+
+	$pin = static function ( $handle ) use ( $host, $port, $ip ): void {
+		if ( ! function_exists( 'curl_setopt' ) || ! defined( 'CURLOPT_RESOLVE' ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt -- This IS the wp_remote_get() handle; pinning the address it connects to has no HTTP-API equivalent.
+		curl_setopt( $handle, CURLOPT_RESOLVE, [ sprintf( '%s:%d:%s', $host, $port, $ip ) ] );
+	};
+
+	add_action( 'http_api_curl', $pin );
+
+	try {
+		return wp_safe_remote_get(
+			$url,
+			[
+				'timeout'             => 30,
+				'redirection'         => 0,
+				'stream'              => true,
+				'filename'            => $temp,
+				'limit_response_size' => $max_bytes > 0 ? $max_bytes : null,
+			]
+		);
+	} finally {
+		remove_action( 'http_api_curl', $pin );
+	}
+}
+
+/**
+ * Download a URL to a temp file, bounding the response size and request time.
  *
  * @param string $url Validated source URL.
  * @return string|\WP_Error Temp file path, or an error.
@@ -348,15 +464,7 @@ function download_to_temp( string $url ) {
 	 */
 	$max_bytes = (int) apply_filters( 'hm_abilities_media_max_download_bytes', $max_bytes, $url );
 
-	$response = wp_safe_remote_get(
-		$url,
-		[
-			'timeout'             => 30,
-			'stream'              => true,
-			'filename'            => $temp,
-			'limit_response_size' => $max_bytes > 0 ? $max_bytes : null,
-		]
-	);
+	$response = fetch_pinned( $url, $temp, $max_bytes );
 
 	if ( is_wp_error( $response ) ) {
 		wp_delete_file( $temp );

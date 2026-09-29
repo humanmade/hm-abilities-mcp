@@ -1,7 +1,7 @@
 <?php
 /**
- * Covers the per-object read and write checks in the block-insights and
- * navigation modules. Helpers come from tests/bootstrap.php.
+ * Covers the per-object checks across the media, navigation and
+ * block-insights modules. Helpers come from tests/bootstrap.php.
  *
  * @package HM_Abilities_MCP
  */
@@ -108,5 +108,19 @@ $before  = get_post( $menu )->post_content;
 $trashed_write = run( 'hm-abilities/update-navigation', [ 'id' => $menu, 'items' => [ [ 'label' => 'Overwritten', 'url' => '/x', 'kind' => 'custom' ] ] ] );
 check( 'a trashed menu is not writable', is_wp_error( $trashed_write ), $trashed_write );
 check( 'and its content is untouched', get_post( $menu )->post_content === $before, get_post( $menu )->post_content );
+
+echo "\n== media: source screening ==\n";
+
+$loopback = run( 'hm-abilities/upload-media', [ 'source_url' => 'http://127.0.0.1/x.png' ] );
+check( 'a loopback source is refused', is_wp_error( $loopback ), $loopback );
+
+$metadata = run( 'hm-abilities/upload-media', [ 'source_url' => 'http://169.254.169.254/latest/meta-data/' ] );
+check( 'the cloud metadata address is refused', is_wp_error( $metadata ), $metadata );
+
+$ipv6_loopback = run( 'hm-abilities/upload-media', [ 'source_url' => 'http://[::1]/x.png' ] );
+check( 'an IPv6 loopback source is refused', is_wp_error( $ipv6_loopback ), $ipv6_loopback );
+
+$unresolvable = run( 'hm-abilities/upload-media', [ 'source_url' => 'http://no-such-host.invalid/x.png' ] );
+check( 'an unresolvable host is refused rather than allowed', is_wp_error( $unresolvable ), $unresolvable );
 
 summary();
