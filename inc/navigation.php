@@ -64,6 +64,16 @@ function register(): void {
 					]
 				)
 			),
+			'output_schema'       => Support\list_schema(
+				Support\output_object(
+					[
+						'id'    => Support\prop( 'integer', __( 'wp_navigation post ID, which get-navigation and update-navigation take.', 'hm-abilities-mcp' ) ),
+						'title' => Support\prop( 'string', __( 'Menu title.', 'hm-abilities-mcp' ) ),
+						'slug'  => Support\prop( 'string', __( 'Menu slug.', 'hm-abilities-mcp' ) ),
+					],
+					[ 'id', 'title', 'slug' ]
+				)
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_menus',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta(
@@ -92,6 +102,16 @@ function register(): void {
 					]
 				),
 				[ 'id' ]
+			),
+			'output_schema'       => Support\output_object(
+				[
+					'id'    => Support\prop( 'integer', __( 'wp_navigation post ID.', 'hm-abilities-mcp' ) ),
+					'title' => Support\prop( 'string', __( 'Menu title.', 'hm-abilities-mcp' ) ),
+					'items' => Support\nav_items_schema() + [
+						'description' => __( 'The menu entries, in order.', 'hm-abilities-mcp' ),
+					],
+				],
+				[ 'id', 'title', 'items' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\get_menu',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
@@ -151,6 +171,13 @@ function register(): void {
 					]
 				),
 				[ 'id', 'items' ]
+			),
+			'output_schema'       => Support\output_object(
+				[
+					'id'         => Support\prop( 'integer', __( 'wp_navigation post ID that was written.', 'hm-abilities-mcp' ) ),
+					'item_count' => Support\prop( 'integer', __( 'Top-level items written. Children nested under them are not counted.', 'hm-abilities-mcp' ) ),
+				],
+				[ 'id', 'item_count' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\update_menu',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',

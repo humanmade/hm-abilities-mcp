@@ -102,6 +102,7 @@ function register(): void {
 					)
 				)
 			),
+			'output_schema'       => Support\list_schema( Support\post_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -149,6 +150,7 @@ function register(): void {
 					)
 				)
 			),
+			'output_schema'       => Support\list_schema( Support\post_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_recent_articles',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -174,6 +176,7 @@ function register(): void {
 				),
 				[ 'id' ]
 			),
+			'output_schema'       => Support\post_schema( true ),
 			'execute_callback'    => __NAMESPACE__ . '\\get_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -208,6 +211,7 @@ function register(): void {
 				),
 				[ 'post_type', 'title' ]
 			),
+			'output_schema'       => Support\post_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\create_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
 			'meta'                => meta(
@@ -244,6 +248,7 @@ function register(): void {
 				),
 				[ 'id' ]
 			),
+			'output_schema'       => Support\post_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\update_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
 			'meta'                => meta( $write ),

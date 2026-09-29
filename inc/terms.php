@@ -81,6 +81,17 @@ function register(): void {
 					]
 				)
 			),
+			'output_schema'       => Support\list_schema(
+				Support\term_schema(),
+				[
+					'taxonomies' => Support\output_list(
+						taxonomy_schema(),
+						__( 'Every taxonomy available to these abilities, returned on every call.', 'hm-abilities-mcp' )
+					),
+					'taxonomy'   => Support\prop( [ 'string', 'null' ], __( 'The taxonomy the items came from, or null when none was named.', 'hm-abilities-mcp' ) ),
+				],
+				[ 'taxonomies', 'taxonomy' ]
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_terms',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => [
@@ -248,4 +259,25 @@ function format_taxonomy( string $taxonomy ): ?array {
 		'post_types'   => array_values( array_intersect( (array) $object->object_type, Support\post_types() ) ),
 		'total_terms'  => is_wp_error( $count ) ? 0 : (int) $count,
 	];
+}
+
+/**
+ * Output schema for a taxonomy, describing `format_taxonomy()`.
+ *
+ * @return array<string, mixed>
+ */
+function taxonomy_schema(): array {
+	return Support\output_object(
+		[
+			'name'         => Support\prop( 'string', __( 'Taxonomy slug, which is the value the taxonomy input takes.', 'hm-abilities-mcp' ) ),
+			'label'        => Support\prop( 'string', __( 'Human-readable taxonomy label.', 'hm-abilities-mcp' ) ),
+			'hierarchical' => Support\prop( 'boolean', __( 'True when terms in the taxonomy nest under a parent.', 'hm-abilities-mcp' ) ),
+			'post_types'   => Support\output_list(
+				[ 'type' => 'string' ],
+				__( 'Exposed post types the taxonomy applies to.', 'hm-abilities-mcp' )
+			),
+			'total_terms'  => Support\prop( 'integer', __( 'How many terms the taxonomy holds, counting unused ones.', 'hm-abilities-mcp' ) ),
+		],
+		[ 'name', 'label', 'hierarchical', 'post_types', 'total_terms' ]
+	);
 }

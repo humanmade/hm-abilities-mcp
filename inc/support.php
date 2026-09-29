@@ -252,6 +252,52 @@ function format_post( WP_Post $post, bool $with_content = false, array $fields =
 }
 
 /**
+ * Output schema for a post, describing `format_post()`.
+ *
+ * `terms` is optional because it appears only when the caller names it in
+ * `fields`.
+ *
+ * @param bool $with_content Match the call that appends raw block markup.
+ * @return array<string, mixed>
+ */
+function post_schema( bool $with_content = false ): array {
+	$properties = [
+		'id'       => prop( 'integer', __( 'Post ID.', 'hm-abilities-mcp' ) ),
+		'title'    => prop( 'string', __( 'Rendered post title.', 'hm-abilities-mcp' ) ),
+		'slug'     => prop( 'string', __( 'Post slug.', 'hm-abilities-mcp' ) ),
+		'status'   => prop( 'string', __( 'Post status, for instance publish or draft.', 'hm-abilities-mcp' ) ),
+		'type'     => prop( 'string', __( 'Post type slug.', 'hm-abilities-mcp' ) ),
+		'link'     => prop( 'string', __( 'Permalink to the post.', 'hm-abilities-mcp' ), [ 'format' => 'uri' ] ),
+		'author'   => output_object(
+			[
+				'id'   => prop( 'integer', __( 'Author user ID.', 'hm-abilities-mcp' ) ),
+				'name' => prop( 'string', __( 'Author display name.', 'hm-abilities-mcp' ) ),
+				'slug' => prop( 'string', __( 'Author slug, which is the value the author filter on the list abilities accepts.', 'hm-abilities-mcp' ) ),
+			],
+			[ 'id', 'name', 'slug' ],
+			__( 'The post author. An unattributed post reports ID 0 and empty strings.', 'hm-abilities-mcp' )
+		),
+		'date'     => prop( 'string', __( 'Published date, ISO 8601 in the site timezone.', 'hm-abilities-mcp' ), [ 'format' => 'date-time' ] ),
+		'modified' => prop( 'string', __( 'Last modified date, ISO 8601 in the site timezone.', 'hm-abilities-mcp' ), [ 'format' => 'date-time' ] ),
+		'terms'    => prop(
+			'object',
+			__( 'Terms assigned to the post, keyed by taxonomy slug. Returned only when fields includes terms.', 'hm-abilities-mcp' ),
+			[ 'additionalProperties' => output_list( term_schema() ) ]
+		),
+	];
+
+	$required = [ 'id', 'title', 'slug', 'status', 'type', 'link', 'author', 'date', 'modified' ];
+
+	if ( $with_content ) {
+		$properties['content'] = prop( 'string', __( 'Raw block markup stored for the post.', 'hm-abilities-mcp' ) );
+
+		$required[] = 'content';
+	}
+
+	return output_object( $properties, $required );
+}
+
+/**
  * Shape a post author for ability output.
  *
  * `slug` is the value the `author` filter accepts. An unattributed post
@@ -320,6 +366,25 @@ function format_term( WP_Term $term ): array {
 }
 
 /**
+ * Output schema for a term, describing `format_term()`.
+ *
+ * @return array<string, mixed>
+ */
+function term_schema(): array {
+	return output_object(
+		[
+			'id'       => prop( 'integer', __( 'Term ID.', 'hm-abilities-mcp' ) ),
+			'name'     => prop( 'string', __( 'Term name.', 'hm-abilities-mcp' ) ),
+			'slug'     => prop( 'string', __( 'Term slug, which is the value the terms filter on list-content accepts.', 'hm-abilities-mcp' ) ),
+			'taxonomy' => prop( 'string', __( 'Taxonomy the term belongs to.', 'hm-abilities-mcp' ) ),
+			'count'    => prop( 'integer', __( 'How much content across the site uses the term, not a count within these results.', 'hm-abilities-mcp' ) ),
+			'parent'   => prop( 'integer', __( 'Parent term ID, 0 for a top-level term.', 'hm-abilities-mcp' ) ),
+		],
+		[ 'id', 'name', 'slug', 'taxonomy', 'count', 'parent' ]
+	);
+}
+
+/**
  * Wrap formatted items in the standard list envelope.
  *
  * `count` is this page, `total` the whole result set.
@@ -341,6 +406,31 @@ function list_response( WP_Query $query, array $items ): array {
 		'has_more'    => $page < $pages,
 		'next_page'   => $page < $pages ? $page + 1 : null,
 	];
+}
+
+/**
+ * Output schema for the standard list envelope `list_response()` returns.
+ *
+ * Extra properties are merged ahead of the envelope's own, so an ability that
+ * adds its own keys lists them first.
+ *
+ * @param array<string, mixed> $item_schema Schema for one entry of `items`.
+ * @param array<string, mixed> $properties  Extra properties this ability adds.
+ * @param string[]             $required    Names of those extras that are always present.
+ * @return array<string, mixed>
+ */
+function list_schema( array $item_schema, array $properties = [], array $required = [] ): array {
+	$envelope = [
+		'items'       => output_list( $item_schema, __( 'The results on this page.', 'hm-abilities-mcp' ) ),
+		'count'       => prop( 'integer', __( 'How many results are on this page.', 'hm-abilities-mcp' ) ),
+		'total'       => prop( 'integer', __( 'How many results match across every page.', 'hm-abilities-mcp' ) ),
+		'page'        => prop( 'integer', __( 'The page number these results came from, counting from 1.', 'hm-abilities-mcp' ) ),
+		'total_pages' => prop( 'integer', __( 'How many pages the full result set spans.', 'hm-abilities-mcp' ) ),
+		'has_more'    => prop( 'boolean', __( 'True when a further page of results exists.', 'hm-abilities-mcp' ) ),
+		'next_page'   => prop( [ 'integer', 'null' ], __( 'The page to request next, or null on the last page.', 'hm-abilities-mcp' ) ),
+	];
+
+	return output_object( $properties + $envelope, array_merge( $required, array_keys( $envelope ) ) );
 }
 
 /**
@@ -393,6 +483,89 @@ function object_schema( array $properties, array $required = [] ): array {
 
 	if ( $required ) {
 		$schema['required'] = $required;
+	}
+
+	return $schema;
+}
+
+/**
+ * Build one schema property.
+ *
+ * Takes a union type as an array, as JSON Schema does: `prop( [ 'integer',
+ * 'null' ], ... )`. Anything beyond type and description — `format`, `enum`,
+ * `minimum` — goes in `$extra` and is merged in as given.
+ *
+ * @param string|string[]      $type        JSON type, or a list of them.
+ * @param string               $description What the property holds.
+ * @param array<string, mixed> $extra       Further schema keywords.
+ * @return array<string, mixed>
+ */
+function prop( $type, string $description, array $extra = [] ): array {
+	return [
+		'type'        => $type,
+		'description' => $description,
+	] + $extra;
+}
+
+/**
+ * Build an object output schema, closed to properties it does not name.
+ *
+ * The output counterpart to `object_schema()`, whose top-level `default` an
+ * output schema must not carry.
+ *
+ * @param array<string, mixed> $properties  Schema properties.
+ * @param string[]             $required    Names of the properties always present.
+ * @param string               $description What the object holds. Omitted when empty.
+ * @return array<string, mixed>
+ */
+function output_object( array $properties, array $required, string $description = '' ): array {
+	$schema = [
+		'type'                 => 'object',
+		'properties'           => $properties,
+		'required'             => $required,
+		'additionalProperties' => false,
+	];
+
+	if ( $description !== '' ) {
+		$schema['description'] = $description;
+	}
+
+	return $schema;
+}
+
+/**
+ * Add properties to an object output schema built by `output_object()`.
+ *
+ * Reuses a shared schema where an ability returns that shape with extras on
+ * top, so the shared part stays described in one place.
+ *
+ * @param array<string, mixed> $schema     Object schema to extend.
+ * @param array<string, mixed> $properties Properties to add.
+ * @param string[]             $required   Names of the added properties always present.
+ * @return array<string, mixed>
+ */
+function extend_object( array $schema, array $properties, array $required = [] ): array {
+	$schema['properties'] += $properties;
+	$schema['required']    = array_merge( $schema['required'], $required );
+
+	return $schema;
+}
+
+/**
+ * Build an array output schema.
+ *
+ * @param array<string, mixed> $item_schema Schema for one entry.
+ * @param string               $description What the list holds. Omitted when empty.
+ * @return array<string, mixed>
+ */
+function output_list( array $item_schema, string $description = '' ): array {
+	$schema = [
+		'type'  => 'array',
+		'items' => $item_schema,
+	];
+
+	if ( $description !== '' ) {
+		$schema['description'] = $description;
 	}
 
 	return $schema;
@@ -532,6 +705,24 @@ function tally_to_list( array $tally ): array {
 	}
 
 	return $list;
+}
+
+/**
+ * Output schema for a block tally, describing `tally_to_list()`.
+ *
+ * @return array<string, mixed>
+ */
+function block_tally_schema(): array {
+	return output_list(
+		output_object(
+			[
+				'name'  => prop( 'string', __( 'Block type name, for instance core/paragraph.', 'hm-abilities-mcp' ) ),
+				'count' => prop( 'integer', __( 'How many times the block type appears.', 'hm-abilities-mcp' ) ),
+			],
+			[ 'name', 'count' ]
+		),
+		__( 'Block types and their use counts, most used first.', 'hm-abilities-mcp' )
+	);
 }
 
 /**
@@ -839,6 +1030,35 @@ function resolve_site_batch( $input, int $default_per_page, int $max ) {
 }
 
 /**
+ * Output schema for the `sites` block `resolve_site_batch()` returns.
+ *
+ * `page`, `per_page` and `total_pages` are optional: a caller that named
+ * `site_ids` gets the explicit selection, which has no pages to walk.
+ *
+ * @return array<string, mixed>
+ */
+function site_batch_schema(): array {
+	return output_object(
+		[
+			'selection'   => prop(
+				'string',
+				__( 'How the sites were chosen: a page of the network, or the site_ids the caller named.', 'hm-abilities-mcp' ),
+				[ 'enum' => [ 'network_page', 'explicit' ] ]
+			),
+			'total'       => prop( 'integer', __( 'Live sites in the network, or the number named for an explicit selection.', 'hm-abilities-mcp' ) ),
+			'processed'   => prop( 'integer', __( 'How many sites this response covered.', 'hm-abilities-mcp' ) ),
+			'has_more'    => prop( 'boolean', __( 'True when sites remain outside this response.', 'hm-abilities-mcp' ) ),
+			'next_page'   => prop( [ 'integer', 'null' ], __( 'The page to request next, or null when nothing remains.', 'hm-abilities-mcp' ) ),
+			'page'        => prop( 'integer', __( 'The page covered. Absent for an explicit selection.', 'hm-abilities-mcp' ) ),
+			'per_page'    => prop( 'integer', __( 'Sites per page. Absent for an explicit selection.', 'hm-abilities-mcp' ) ),
+			'total_pages' => prop( 'integer', __( 'Pages the network spans. Absent for an explicit selection.', 'hm-abilities-mcp' ) ),
+		],
+		[ 'selection', 'total', 'processed', 'has_more', 'next_page' ],
+		__( 'Which subsites this response covered, and how to reach the rest.', 'hm-abilities-mcp' )
+	);
+}
+
+/**
  * Validate a caller-supplied `site_ids` list into a bounded blog ID list.
  *
  * Rejects an over-long list rather than silently truncating it, so a caller
@@ -1073,6 +1293,22 @@ function current_site_summary(): array {
 }
 
 /**
+ * Output schema for a site summary, describing `current_site_summary()`.
+ *
+ * @return array<string, mixed>
+ */
+function site_summary_schema(): array {
+	return output_object(
+		[
+			'site_id' => prop( 'integer', __( 'Blog ID within the network, which the site_id input takes.', 'hm-abilities-mcp' ) ),
+			'name'    => prop( 'string', __( 'Site name.', 'hm-abilities-mcp' ) ),
+			'url'     => prop( 'string', __( 'Site home URL.', 'hm-abilities-mcp' ), [ 'format' => 'uri' ] ),
+		],
+		[ 'site_id', 'name', 'url' ]
+	);
+}
+
+/**
  * The static front page ID for the current blog, or 0 when the front page is
  * the posts index (no single page backs it).
  *
@@ -1253,4 +1489,30 @@ function blocks_to_items( array $blocks ): array {
 	}
 
 	return $items;
+}
+
+/**
+ * Output schema for navigation items, describing `markup_to_nav_items()`.
+ *
+ * `children` nests items of this same shape and carries only a submenu's own
+ * entries, so it is described rather than declared: the validator this schema
+ * reaches resolves no `$ref`, and an inlined copy would bound the depth.
+ *
+ * @return array<string, mixed>
+ */
+function nav_items_schema(): array {
+	return output_list(
+		output_object(
+			[
+				'label'    => prop( 'string', __( 'Link text.', 'hm-abilities-mcp' ) ),
+				'url'      => prop( 'string', __( 'Link target. Empty for a submenu that points nowhere itself.', 'hm-abilities-mcp' ) ),
+				'kind'     => prop( 'string', __( 'What the link points at, for instance custom or post-type.', 'hm-abilities-mcp' ) ),
+				'children' => output_list(
+					[ 'type' => 'object' ],
+					__( 'Submenu entries, each the same shape as this item. Present only on a submenu that has entries.', 'hm-abilities-mcp' )
+				),
+			],
+			[ 'label', 'url', 'kind' ]
+		)
+	);
 }
