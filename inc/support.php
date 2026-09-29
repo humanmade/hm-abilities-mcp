@@ -109,6 +109,38 @@ function status_query_args( $status ): array {
 }
 
 /**
+ * Require the capability a status change needs.
+ *
+ * `draft` and `pending` pass, since the per-post edit check covers them. Every
+ * other status needs `publish_posts`.
+ *
+ * @param string $status    Status being set.
+ * @param string $post_type Post type the status is being set on.
+ * @return WP_Error|null Error when the change is not allowed, null when it is.
+ */
+function require_status_cap( string $status, string $post_type ): ?WP_Error {
+	if ( in_array( $status, [ 'draft', 'pending' ], true ) ) {
+		return null;
+	}
+
+	$object = get_post_type_object( $post_type );
+
+	if ( $object && current_user_can( $object->cap->publish_posts ) ) {
+		return null;
+	}
+
+	return error(
+		'hm_abilities_cannot_publish',
+		sprintf(
+			/* translators: %s: post status being set, e.g. "publish". */
+			__( 'You are not allowed to set the status to %s on this post type.', 'hm-abilities-mcp' ),
+			$status
+		),
+		403
+	);
+}
+
+/**
  * Shape a post for ability output.
  *
  * @param WP_Post $post         Post object.

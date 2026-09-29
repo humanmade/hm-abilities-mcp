@@ -15,10 +15,8 @@ use WP_Post;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Post statuses a navigation menu may be in to be read or written through
- * these abilities. Excludes `trash` (and every other status), so a deleted
- * menu is neither returned by get-navigation nor overwritten by
- * update-navigation once it is gone.
+ * Statuses a navigation menu may be in to be read or written. Excludes `trash`,
+ * so a deleted menu is neither returned nor overwritten.
  *
  * @var string[]
  */
@@ -242,6 +240,9 @@ function get_menu( $input = null ) {
 /**
  * Replace a navigation menu's items.
  *
+ * A menu outside `ALLOWED_STATUSES` 404s, and the caller must hold `edit_post`
+ * on the menu itself.
+ *
  * @param mixed $input Ability input.
  * @return array<string, mixed>|\WP_Error
  */
@@ -257,8 +258,12 @@ function update_menu( $input = null ) {
 
 			$post = get_post( $id );
 
-			if ( ! $post instanceof WP_Post || $post->post_type !== 'wp_navigation' ) {
+			if ( ! $post instanceof WP_Post || $post->post_type !== 'wp_navigation' || ! in_array( $post->post_status, ALLOWED_STATUSES, true ) ) {
 				return Support\error( 'hm_abilities_not_found', __( 'No navigation menu found for that ID.', 'hm-abilities-mcp' ), 404 );
+			}
+
+			if ( ! current_user_can( 'edit_post', $post->ID ) ) {
+				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to edit that navigation menu.', 'hm-abilities-mcp' ), 403 );
 			}
 
 			if ( ! is_array( $input ) || ! isset( $input['items'] ) ) {

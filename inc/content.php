@@ -437,6 +437,13 @@ function create_content( $input = null ) {
 				return Support\error( 'hm_abilities_invalid_post_type', __( 'Unsupported post_type.', 'hm-abilities-mcp' ), 400 );
 			}
 
+			// A type registered with custom caps maps `create_posts` elsewhere.
+			$type_object = get_post_type_object( $post_type );
+
+			if ( ! $type_object || ! current_user_can( $type_object->cap->create_posts ) ) {
+				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to create content of that post type.', 'hm-abilities-mcp' ), 403 );
+			}
+
 			if ( ! isset( $input['title'] ) || ! is_string( $input['title'] ) || $input['title'] === '' ) {
 				return Support\error( 'hm_abilities_missing_title', __( 'A title is required.', 'hm-abilities-mcp' ), 400 );
 			}
@@ -445,6 +452,12 @@ function create_content( $input = null ) {
 
 			if ( ! in_array( $status, Support\statuses(), true ) ) {
 				return Support\error( 'hm_abilities_invalid_status', __( 'Unsupported status.', 'hm-abilities-mcp' ), 400 );
+			}
+
+			$denied = Support\require_status_cap( $status, $post_type );
+
+			if ( $denied ) {
+				return $denied;
 			}
 
 			$id = wp_insert_post(
@@ -466,7 +479,7 @@ function create_content( $input = null ) {
 			$post = get_post( $id );
 
 			if ( ! $post instanceof WP_Post ) {
-				return [ 'id' => $id ];
+				return Support\error( 'hm_abilities_create_failed', __( 'The post could not be loaded after creating.', 'hm-abilities-mcp' ), 500 );
 			}
 
 			return Support\format_post( $post );
@@ -500,6 +513,10 @@ function update_content( $input = null ) {
 				return Support\error( 'hm_abilities_forbidden', __( 'That post type is not available through this ability.', 'hm-abilities-mcp' ), 403 );
 			}
 
+			if ( ! current_user_can( 'edit_post', $post->ID ) ) {
+				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to edit that post.', 'hm-abilities-mcp' ), 403 );
+			}
+
 			$update = [ 'ID' => $id ];
 
 			if ( isset( $input['title'] ) ) {
@@ -510,6 +527,12 @@ function update_content( $input = null ) {
 
 				if ( ! in_array( $status, Support\statuses(), true ) ) {
 					return Support\error( 'hm_abilities_invalid_status', __( 'Unsupported status.', 'hm-abilities-mcp' ), 400 );
+				}
+
+				$denied = Support\require_status_cap( $status, $post->post_type );
+
+				if ( $denied ) {
+					return $denied;
 				}
 
 				$update['post_status'] = $status;

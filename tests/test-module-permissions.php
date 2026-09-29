@@ -1,7 +1,7 @@
 <?php
 /**
- * Covers the per-object read checks in the block-insights and navigation
- * modules. Helpers come from tests/bootstrap.php.
+ * Covers the per-object read and write checks in the block-insights and
+ * navigation modules. Helpers come from tests/bootstrap.php.
  *
  * @package HM_Abilities_MCP
  */
@@ -103,5 +103,10 @@ wp_trash_post( $menu );
 
 $trashed_read = run( 'hm-abilities/get-navigation', [ 'id' => $menu ] );
 check( 'a trashed menu is not readable', is_wp_error( $trashed_read ), $trashed_read );
+
+$before  = get_post( $menu )->post_content;
+$trashed_write = run( 'hm-abilities/update-navigation', [ 'id' => $menu, 'items' => [ [ 'label' => 'Overwritten', 'url' => '/x', 'kind' => 'custom' ] ] ] );
+check( 'a trashed menu is not writable', is_wp_error( $trashed_write ), $trashed_write );
+check( 'and its content is untouched', get_post( $menu )->post_content === $before, get_post( $menu )->post_content );
 
 summary();
