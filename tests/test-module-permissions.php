@@ -109,10 +109,13 @@ $trashed_write = run( 'hm-abilities/update-navigation', [ 'id' => $menu, 'items'
 check( 'a trashed menu is not writable', is_wp_error( $trashed_write ), $trashed_write );
 check( 'and its content is untouched', get_post( $menu )->post_content === $before, get_post( $menu )->post_content );
 
-echo "\n== navigation: depth bound ==\n";
+echo "\n== navigation: list envelope and depth bound ==\n";
 
 wp_untrash_post( $menu );
 wp_update_post( [ 'ID' => $menu, 'post_status' => 'publish' ] );
+
+$menus = run( 'hm-abilities/list-navigation', [] );
+check( 'list-navigation reports a total', is_array( field( $menus, 'items' ) ) && field( $menus, 'total' ) !== null, $menus );
 
 // Six levels of children, one deeper than MAX_NAV_DEPTH allows.
 $deep = [ 'label' => 'L0', 'url' => '/', 'kind' => 'custom' ];

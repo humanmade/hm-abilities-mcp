@@ -24,6 +24,8 @@ require_once __DIR__ . '/inc/support.php';
 require_once __DIR__ . '/inc/category.php';
 require_once __DIR__ . '/inc/whoami.php';
 require_once __DIR__ . '/inc/content.php';
+require_once __DIR__ . '/inc/terms.php';
+require_once __DIR__ . '/inc/users.php';
 require_once __DIR__ . '/inc/media.php';
 require_once __DIR__ . '/inc/navigation.php';
 require_once __DIR__ . '/inc/settings.php';

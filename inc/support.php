@@ -11,6 +11,8 @@ namespace HM\Abilities\Support;
 
 use WP_Error;
 use WP_Post;
+use WP_Query;
+use WP_Term;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -45,6 +47,80 @@ function post_types(): array {
 	$post_types = apply_filters( 'hm_abilities_post_types', [ 'page', 'post' ] );
 
 	return is_array( $post_types ) ? array_values( array_filter( array_map( 'strval', $post_types ) ) ) : [ 'page', 'post' ];
+}
+
+/**
+ * Taxonomies the content abilities may read terms from.
+ *
+ * Defaults to the public taxonomies attached to the exposed post types. A
+ * taxonomy registered `public => false` is excluded until a site opts it in
+ * with the `hm_abilities_taxonomies` filter.
+ *
+ * @return string[] Taxonomy slugs, each one registered.
+ */
+function taxonomies(): array {
+	$defaults = [];
+
+	foreach ( get_object_taxonomies( post_types(), 'objects' ) as $taxonomy ) {
+		if ( $taxonomy->public ) {
+			$defaults[] = $taxonomy->name;
+		}
+	}
+
+	/**
+	 * Filters the taxonomies the content abilities may read terms from.
+	 *
+	 * @param string[] $taxonomies Taxonomy slugs. Default the public taxonomies on the exposed post types.
+	 */
+	$taxonomies = apply_filters( 'hm_abilities_taxonomies', $defaults );
+
+	if ( ! is_array( $taxonomies ) ) {
+		return $defaults;
+	}
+
+	return array_values( array_filter( array_map( 'strval', $taxonomies ), 'taxonomy_exists' ) );
+}
+
+/**
+ * Extras a caller can add to a formatted post with the `fields` input.
+ *
+ * Author and dates are not listed: they come back on every item regardless.
+ *
+ * @return string[] Field names.
+ */
+function post_fields(): array {
+	return [ 'terms' ];
+}
+
+/**
+ * Adds the `fields` input-schema property to an ability that formats posts.
+ *
+ * @param array<string, mixed> $properties Existing schema properties.
+ * @return array<string, mixed> Properties with `fields` added.
+ */
+function with_fields( array $properties ): array {
+	$properties['fields'] = [
+		'type'        => 'array',
+		'items'       => [
+			'type' => 'string',
+			'enum' => post_fields(),
+		],
+		'description' => __( 'Extra fields to include on each item. "terms" adds the taxonomy terms the item is assigned to, left out by default because one item can carry many.', 'hm-abilities-mcp' ),
+	];
+
+	return $properties;
+}
+
+/**
+ * Reads the `fields` list out of ability input, dropping unknown names.
+ *
+ * @param array<string, mixed> $input Ability input.
+ * @return string[] Field names, each one in `post_fields()`.
+ */
+function requested_fields( array $input ): array {
+	$fields = ( isset( $input['fields'] ) && is_array( $input['fields'] ) ) ? $input['fields'] : [];
+
+	return array_values( array_intersect( array_map( 'strval', $fields ), post_fields() ) );
 }
 
 /**
@@ -143,25 +219,128 @@ function require_status_cap( string $status, string $post_type ): ?WP_Error {
 /**
  * Shape a post for ability output.
  *
- * @param WP_Post $post         Post object.
- * @param bool    $with_content Include raw block markup.
+ * Dates are ISO 8601 in the site timezone. `terms` appears only when asked for
+ * through `$fields`; see `post_fields()`.
+ *
+ * @param WP_Post  $post         Post object.
+ * @param bool     $with_content Include raw block markup.
+ * @param string[] $fields       Extra fields to include. Accepts 'terms'. Default empty.
  * @return array<string, mixed>
  */
-function format_post( WP_Post $post, bool $with_content = false ): array {
+function format_post( WP_Post $post, bool $with_content = false, array $fields = [] ): array {
 	$data = [
-		'id'     => $post->ID,
-		'title'  => get_the_title( $post ),
-		'slug'   => $post->post_name,
-		'status' => $post->post_status,
-		'type'   => $post->post_type,
-		'link'   => (string) get_permalink( $post ),
+		'id'       => $post->ID,
+		'title'    => get_the_title( $post ),
+		'slug'     => $post->post_name,
+		'status'   => $post->post_status,
+		'type'     => $post->post_type,
+		'link'     => (string) get_permalink( $post ),
+		'author'   => format_author( (int) $post->post_author ),
+		'date'     => (string) get_post_time( 'c', false, $post ),
+		'modified' => (string) get_post_modified_time( 'c', false, $post ),
 	];
+
+	if ( in_array( 'terms', $fields, true ) ) {
+		$data['terms'] = post_terms( $post );
+	}
 
 	if ( $with_content ) {
 		$data['content'] = $post->post_content;
 	}
 
 	return $data;
+}
+
+/**
+ * Shape a post author for ability output.
+ *
+ * `slug` is the value the `author` filter accepts. An unattributed post
+ * reports ID 0 and empty strings.
+ *
+ * @param int $user_id Author user ID.
+ * @return array{id: int, name: string, slug: string}
+ */
+function format_author( int $user_id ): array {
+	$user = $user_id > 0 ? get_userdata( $user_id ) : false;
+
+	return [
+		'id'   => $user_id,
+		'name' => $user ? $user->display_name : '',
+		'slug' => $user ? $user->user_nicename : '',
+	];
+}
+
+/**
+ * Terms assigned to a post, keyed by taxonomy.
+ *
+ * Skips taxonomies the post type does not register and those `taxonomies()`
+ * does not expose.
+ *
+ * @param WP_Post $post Post object.
+ * @return array<string, array<int, array<string, mixed>>> Taxonomy slug => terms.
+ */
+function post_terms( WP_Post $post ): array {
+	$out = [];
+
+	foreach ( taxonomies() as $taxonomy ) {
+		if ( ! is_object_in_taxonomy( $post->post_type, $taxonomy ) ) {
+			continue;
+		}
+
+		$terms = get_the_terms( $post, $taxonomy );
+
+		if ( ! is_array( $terms ) || $terms === [] ) {
+			continue;
+		}
+
+		$out[ $taxonomy ] = array_map( __NAMESPACE__ . '\\format_term', $terms );
+	}
+
+	return $out;
+}
+
+/**
+ * Shape a term for ability output.
+ *
+ * `count` is the term's total use across the site, not a count within the
+ * current result set.
+ *
+ * @param WP_Term $term Term object.
+ * @return array<string, mixed>
+ */
+function format_term( WP_Term $term ): array {
+	return [
+		'id'       => (int) $term->term_id,
+		'name'     => $term->name,
+		'slug'     => $term->slug,
+		'taxonomy' => $term->taxonomy,
+		'count'    => (int) $term->count,
+		'parent'   => (int) $term->parent,
+	];
+}
+
+/**
+ * Wrap formatted items in the standard list envelope.
+ *
+ * `count` is this page, `total` the whole result set.
+ *
+ * @param WP_Query             $query Executed query the items came from.
+ * @param array<int, mixed>    $items Formatted items for the current page.
+ * @return array<string, mixed>
+ */
+function list_response( WP_Query $query, array $items ): array {
+	$page  = max( 1, (int) $query->get( 'paged' ) );
+	$pages = (int) $query->max_num_pages;
+
+	return [
+		'items'       => $items,
+		'count'       => count( $items ),
+		'total'       => (int) $query->found_posts,
+		'page'        => $page,
+		'total_pages' => $pages,
+		'has_more'    => $page < $pages,
+		'next_page'   => $page < $pages ? $page + 1 : null,
+	];
 }
 
 /**
@@ -856,7 +1035,12 @@ function check_cap_on_site( $input, string $cap, bool $require_live ) {
 	$blog_id = resolve_target_site( $input );
 
 	if ( is_wp_error( $blog_id ) ) {
-		return $blog_id;
+		/*
+		 * Not a pass. The Abilities API replaces a permission-callback error
+		 * with a generic one, so the bad `site_id` is left to `on_site()`,
+		 * which returns it with its code intact and runs nothing else.
+		 */
+		return true;
 	}
 
 	if ( $require_live ) {

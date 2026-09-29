@@ -11,6 +11,7 @@ namespace HM\Abilities\Navigation;
 
 use HM\Abilities\Support;
 use WP_Post;
+use WP_Query;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -47,7 +48,22 @@ function register(): void {
 			'label'               => __( 'List navigation menus', 'hm-abilities-mcp' ),
 			'description'         => __( 'List all navigation menus (wp_navigation posts).', 'hm-abilities-mcp' ),
 			'category'            => Support\CATEGORY,
-			'input_schema'        => Support\object_schema( Support\with_site_id( [] ) ),
+			'input_schema'        => Support\object_schema(
+				Support\with_site_id(
+					[
+						'per_page' => [
+							'type'    => 'integer',
+							'default' => 20,
+							'minimum' => 1,
+							'maximum' => Support\MAX_PER_PAGE,
+						],
+						'page'     => [
+							'type'    => 'integer',
+							'default' => 1,
+						],
+					]
+				)
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_menus',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta(
@@ -184,7 +200,8 @@ function can_write( $input = null ) {
 }
 
 /**
- * List navigation menus on the targeted subsite.
+ * List navigation menus on the targeted subsite, newest first, one page at a
+ * time.
  *
  * @param mixed $input Ability input.
  * @return array<string, mixed>|\WP_Error
@@ -192,26 +209,29 @@ function can_write( $input = null ) {
 function list_menus( $input = null ) {
 	return Support\on_site(
 		$input,
-		static function (): array {
-			$menus = array_map(
+		static function () use ( $input ): array {
+			$input = is_array( $input ) ? $input : [];
+
+			$query = new WP_Query(
+				[
+					'post_type'        => 'wp_navigation',
+					'post_status'      => 'publish',
+					'posts_per_page'   => isset( $input['per_page'] ) ? min( Support\MAX_PER_PAGE, max( 1, (int) $input['per_page'] ) ) : 20,
+					'paged'            => isset( $input['page'] ) ? max( 1, (int) $input['page'] ) : 1,
+					'suppress_filters' => true,
+				]
+			);
+
+			$items = array_map(
 				static fn ( WP_Post $post ): array => [
 					'id'    => $post->ID,
 					'title' => get_the_title( $post ),
 					'slug'  => $post->post_name,
 				],
-				get_posts(
-					[
-						'post_type'      => 'wp_navigation',
-						'post_status'    => 'publish',
-						'posts_per_page' => Support\MAX_PER_PAGE,
-					]
-				)
+				$query->posts
 			);
 
-			return [
-				'menus' => $menus,
-				'count' => count( $menus ),
-			];
+			return Support\list_response( $query, $items );
 		}
 	);
 }
