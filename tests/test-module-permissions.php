@@ -138,6 +138,44 @@ $deep_blocks = run( 'hm-abilities/validate-blocks', [ 'content' => $nested ] );
 check( 'deeply nested markup returns instead of exhausting the stack', ! is_wp_error( $deep_blocks ), $deep_blocks );
 check( 'and flags the result as truncated', field( $deep_blocks, 'truncated' ) === true, $deep_blocks );
 
+echo "\n== settings: a rejected write is reported, not swallowed ==\n";
+
+$bad_tz = run( 'hm-abilities/update-settings', [ 'timezone' => 'Not/AZone' ] );
+check( 'an invalid timezone is reported as rejected', code( $bad_tz ) === 'hm_abilities_setting_rejected', $bad_tz );
+
+$bad_pl = run( 'hm-abilities/update-settings', [ 'permalink_structure' => '/abc/' ] );
+check( 'a permalink structure with no tags is reported as rejected', code( $bad_pl ) === 'hm_abilities_setting_rejected', $bad_pl );
+
+$good_tz = run( 'hm-abilities/update-settings', [ 'timezone' => 'Europe/London' ] );
+check( 'a valid timezone still applies', field( $good_tz, 'timezone' ) === 'Europe/London', $good_tz );
+check( 'and the option really changed', get_option( 'timezone_string' ) === 'Europe/London', get_option( 'timezone_string' ) );
+
+$repeat = run( 'hm-abilities/update-settings', [ 'timezone' => 'Europe/London' ] );
+check( 'writing the same value again is not a false rejection', ! is_wp_error( $repeat ), $repeat );
+
+// Core re-encodes the title on save, so a naive before/after comparison would
+// call this a rejection even though the write succeeded.
+$amp = run( 'hm-abilities/update-settings', [ 'title' => 'Ben & Jerry <3' ] );
+check( 'a title containing & and < is not a false rejection', ! is_wp_error( $amp ), $amp );
+check( 'and the title really changed', get_option( 'blogname' ) !== '', get_option( 'blogname' ) );
+
+$valid_pl = run( 'hm-abilities/update-settings', [ 'permalink_structure' => '/%postname%/' ] );
+check( 'a valid permalink structure still applies', get_option( 'permalink_structure' ) === '/%postname%/', get_option( 'permalink_structure' ) );
+
+// Core runs strip_tags() over a date format it accepts. Comparing the stored
+// value against the raw request afterwards reads that rewrite as a rejection.
+$tagged = run( 'hm-abilities/update-settings', [ 'date_format' => '<b>Y</b>-m-d' ] );
+check( 'a date format core rewrites is not a false rejection', ! is_wp_error( $tagged ), $tagged );
+check( 'and the rewritten format is what got stored', get_option( 'date_format' ) === 'Y-m-d', get_option( 'date_format' ) );
+
+$tagged_time = run( 'hm-abilities/update-settings', [ 'time_format' => '<i>g:i a</i>' ] );
+check( 'the same holds for time_format', ! is_wp_error( $tagged_time ), $tagged_time );
+
+// A rejected value must not be written at all, not written and then reverted.
+$before_tz = get_option( 'timezone_string' );
+run( 'hm-abilities/update-settings', [ 'timezone' => 'Nope/Nowhere' ] );
+check( 'a rejected value leaves the option untouched', get_option( 'timezone_string' ) === $before_tz, get_option( 'timezone_string' ) );
+
 echo "\n== media: source screening ==\n";
 
 $loopback = run( 'hm-abilities/upload-media', [ 'source_url' => 'http://127.0.0.1/x.png' ] );
