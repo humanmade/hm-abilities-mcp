@@ -100,8 +100,9 @@ function register(): void {
 					[
 						'id'    => [ 'type' => 'integer' ],
 						'items' => [
-							'type'  => 'array',
-							'items' => [
+							'type'     => 'array',
+							'maxItems' => 200,
+							'items'    => [
 								'type'       => 'object',
 								'properties' => [
 									'label'    => [ 'type' => 'string' ],
@@ -110,7 +111,23 @@ function register(): void {
 										'type'    => 'string',
 										'default' => 'custom',
 									],
-									'children' => [ 'type' => 'array' ],
+									'children' => [
+										'type'     => 'array',
+										'maxItems' => 200,
+										'items'    => [
+											'type'       => 'object',
+											'properties' => [
+												'label'    => [ 'type' => 'string' ],
+												'url'      => [ 'type' => 'string' ],
+												'kind'     => [
+													'type'    => 'string',
+													'default' => 'custom',
+												],
+												'children' => [ 'type' => 'array' ],
+											],
+											'required'   => [ 'label' ],
+										],
+									],
 								],
 								'required'   => [ 'label' ],
 							],

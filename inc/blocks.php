@@ -15,6 +15,14 @@ use WP_Block_Type_Registry;
 defined( 'ABSPATH' ) || exit;
 
 /**
+ * Deepest `innerBlocks` nesting the validator descends into. Past it, the
+ * result is flagged `truncated`.
+ *
+ * @var int
+ */
+const MAX_DEPTH = 50;
+
+/**
  * Wire up the module's hooks.
  *
  * @return void
@@ -49,7 +57,8 @@ function register(): void {
 				[
 					'content' => [
 						'type'        => 'string',
-						'description' => __( 'Block markup to validate.', 'hm-abilities-mcp' ),
+						'maxLength'   => 262144,
+						'description' => __( 'Block markup to validate. Capped at 256 KB.', 'hm-abilities-mcp' ),
 					],
 				],
 				[ 'content' ]
@@ -111,6 +120,8 @@ function can_read() {
 /**
  * Validate block markup.
  *
+ * Nesting past MAX_DEPTH is left unchecked and flagged `truncated`.
+ *
  * @param mixed $input Ability input.
  * @return array<string, mixed>|\WP_Error
  */
@@ -121,11 +132,17 @@ function validate_blocks( $input = null ) {
 		return Support\error( 'hm_abilities_missing_content', __( 'Block markup content is required.', 'hm-abilities-mcp' ), 400 );
 	}
 
-	$registry = WP_Block_Type_Registry::get_instance();
-	$invalid  = [];
-	$count    = 0;
+	$registry  = WP_Block_Type_Registry::get_instance();
+	$invalid   = [];
+	$count     = 0;
+	$truncated = false;
 
-	$walk = static function ( array $blocks, callable $walk_fn ) use ( &$invalid, &$count, $registry ): void {
+	$walk = static function ( array $blocks, callable $walk_fn, int $depth ) use ( &$invalid, &$count, &$truncated, $registry ): void {
+		if ( $depth > MAX_DEPTH ) {
+			$truncated = true;
+			return;
+		}
+
 		foreach ( $blocks as $block ) {
 			$name = $block['blockName'] ?? null;
 
@@ -140,17 +157,18 @@ function validate_blocks( $input = null ) {
 			}
 
 			if ( ! empty( $block['innerBlocks'] ) ) {
-				$walk_fn( $block['innerBlocks'], $walk_fn );
+				$walk_fn( $block['innerBlocks'], $walk_fn, $depth + 1 );
 			}
 		}
 	};
 
-	$walk( parse_blocks( $input['content'] ), $walk );
+	$walk( parse_blocks( $input['content'] ), $walk, 0 );
 
 	return [
 		'valid'       => $invalid === [],
 		'block_count' => $count,
 		'invalid'     => $invalid,
+		'truncated'   => $truncated,
 	];
 }
 

@@ -1,7 +1,7 @@
 <?php
 /**
- * Covers the per-object checks across the media, navigation and
- * block-insights modules. Helpers come from tests/bootstrap.php.
+ * Covers the per-object and bounding fixes across the media, navigation,
+ * blocks and block-insights modules. Helpers come from tests/bootstrap.php.
  *
  * @package HM_Abilities_MCP
  */
@@ -108,6 +108,35 @@ $before  = get_post( $menu )->post_content;
 $trashed_write = run( 'hm-abilities/update-navigation', [ 'id' => $menu, 'items' => [ [ 'label' => 'Overwritten', 'url' => '/x', 'kind' => 'custom' ] ] ] );
 check( 'a trashed menu is not writable', is_wp_error( $trashed_write ), $trashed_write );
 check( 'and its content is untouched', get_post( $menu )->post_content === $before, get_post( $menu )->post_content );
+
+echo "\n== navigation: depth bound ==\n";
+
+wp_untrash_post( $menu );
+wp_update_post( [ 'ID' => $menu, 'post_status' => 'publish' ] );
+
+// Six levels of children, one deeper than MAX_NAV_DEPTH allows.
+$deep = [ 'label' => 'L0', 'url' => '/', 'kind' => 'custom' ];
+for ( $i = 1; $i <= 6; $i++ ) {
+	$deep = [ 'label' => "L$i", 'url' => '/', 'kind' => 'custom', 'children' => [ $deep ] ];
+}
+
+$deep_write = run( 'hm-abilities/update-navigation', [ 'id' => $menu, 'items' => [ $deep ] ] );
+check( 'a too-deep menu is accepted without exhausting the stack', ! is_wp_error( $deep_write ), $deep_write );
+check( 'and the deepest level is dropped rather than serialized', ! str_contains( get_post( $menu )->post_content, '"label":"L0"' ), get_post( $menu )->post_content );
+
+echo "\n== blocks: size and depth bounds ==\n";
+
+$too_big = run( 'hm-abilities/validate-blocks', [ 'content' => str_repeat( 'a', 262145 ) ] );
+check( 'markup beyond the size cap is rejected', is_wp_error( $too_big ), code( $too_big ) );
+
+$ok_small = run( 'hm-abilities/validate-blocks', [ 'content' => '<!-- wp:acme/nope /-->' ] );
+check( 'ordinary markup still validates', in_array( 'acme/nope', (array) field( $ok_small, 'invalid' ) ?: [], true ) || ! is_wp_error( $ok_small ), $ok_small );
+check( 'and reports truncated=false', field( $ok_small, 'truncated' ) === false, $ok_small );
+
+$nested = str_repeat( '<!-- wp:group -->', 60 ) . '<!-- wp:acme/deep /-->' . str_repeat( '<!-- /wp:group -->', 60 );
+$deep_blocks = run( 'hm-abilities/validate-blocks', [ 'content' => $nested ] );
+check( 'deeply nested markup returns instead of exhausting the stack', ! is_wp_error( $deep_blocks ), $deep_blocks );
+check( 'and flags the result as truncated', field( $deep_blocks, 'truncated' ) === true, $deep_blocks );
 
 echo "\n== media: source screening ==\n";
 

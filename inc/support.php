@@ -974,6 +974,14 @@ function nav_items_to_markup( array $items ): string {
 }
 
 /**
+ * Deepest navigation nesting the serializer builds. The editor itself offers
+ * one level of submenu.
+ *
+ * @var int
+ */
+const MAX_NAV_DEPTH = 5;
+
+/**
  * Build parsed-block structures for a navigation item list (recursive).
  *
  * Returns the block array shape WordPress core expects, so serialization runs
@@ -981,11 +989,18 @@ function nav_items_to_markup( array $items ): string {
  * the comment markup by hand would let a label containing "-->" or "--" break
  * the block delimiter.
  *
+ * Items nested deeper than `MAX_NAV_DEPTH` are dropped rather than serialized.
+ *
  * @param array<int, array<string, mixed>> $items Navigation items.
+ * @param int                              $depth Current nesting level.
  * @return array<int, array<string, mixed>>
  */
-function nav_items_to_blocks( array $items ): array {
+function nav_items_to_blocks( array $items, int $depth = 0 ): array {
 	$blocks = [];
+
+	if ( $depth >= MAX_NAV_DEPTH ) {
+		return $blocks;
+	}
 
 	foreach ( $items as $item ) {
 		if ( ! is_array( $item ) || empty( $item['label'] ) ) {
@@ -999,7 +1014,7 @@ function nav_items_to_blocks( array $items ): array {
 		];
 
 		$children     = isset( $item['children'] ) && is_array( $item['children'] ) ? $item['children'] : [];
-		$inner_blocks = $children ? nav_items_to_blocks( $children ) : [];
+		$inner_blocks = $children ? nav_items_to_blocks( $children, $depth + 1 ) : [];
 
 		$blocks[] = [
 			'blockName'    => $inner_blocks ? 'core/navigation-submenu' : 'core/navigation-link',
