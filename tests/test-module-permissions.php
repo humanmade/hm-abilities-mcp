@@ -190,4 +190,14 @@ check( 'an IPv6 loopback source is refused', is_wp_error( $ipv6_loopback ), $ipv
 $unresolvable = run( 'hm-abilities/upload-media', [ 'source_url' => 'http://no-such-host.invalid/x.png' ] );
 check( 'an unresolvable host is refused rather than allowed', is_wp_error( $unresolvable ), $unresolvable );
 
+$allow_unresolvable = static function () {
+	return [ 'no-such-host.invalid' ];
+};
+add_filter( 'hm_abilities_media_allowed_source_hosts', $allow_unresolvable );
+
+$allowed_unresolvable = run( 'hm-abilities/upload-media', [ 'source_url' => 'http://no-such-host.invalid/x.png' ] );
+check( 'an allowlisted host that resolves to nothing is refused before the fetch', code( $allowed_unresolvable ) === 'hm_abilities_source_not_allowed', $allowed_unresolvable );
+
+remove_filter( 'hm_abilities_media_allowed_source_hosts', $allow_unresolvable );
+
 summary();
