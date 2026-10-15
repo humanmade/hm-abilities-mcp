@@ -264,6 +264,10 @@ function resolve_source_target( string $url ) {
 
 	$ips = resolve_host_ips( $host );
 
+	if ( $ips === [] ) {
+		return Support\error( 'hm_abilities_source_not_allowed', __( 'That source host could not be resolved.', 'hm-abilities-mcp' ), 400 );
+	}
+
 	/**
 	 * Filters the hosts the media sideload ability may fetch from.
 	 *
@@ -281,10 +285,6 @@ function resolve_source_target( string $url ) {
 		}
 
 		return $ips;
-	}
-
-	if ( $ips === [] ) {
-		return Support\error( 'hm_abilities_source_not_allowed', __( 'That source host could not be resolved.', 'hm-abilities-mcp' ), 400 );
 	}
 
 	foreach ( $ips as $ip ) {
