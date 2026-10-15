@@ -61,6 +61,16 @@ check( 'get-content returns modified', ! empty( field( $one, 'modified' ) ), $on
 check( 'get-content still returns content', is_array( $one ) && array_key_exists( 'content', $one ), $one );
 check( 'terms absent without fields', is_array( $one ) && ! array_key_exists( 'terms', $one ), $one );
 
+global $wpdb;
+$zero_date = wp_insert_post( [ 'post_type' => 'post', 'post_title' => 'Zeroed dates', 'post_status' => 'publish' ] );
+$wpdb->update( $wpdb->posts, [ 'post_date' => '0000-00-00 00:00:00', 'post_modified' => '0000-00-00 00:00:00' ], [ 'ID' => $zero_date ] );
+clean_post_cache( $zero_date );
+
+$unreadable = run( 'hm-abilities/get-content', [ 'id' => $zero_date ] );
+check( 'an unreadable stored date passes output validation as null', is_array( $unreadable ) && $unreadable['date'] === null && $unreadable['modified'] === null, $unreadable );
+
+wp_delete_post( $zero_date, true );
+
 $one_terms = run( 'hm-abilities/get-content', [ 'id' => $old_post, 'fields' => [ 'terms' ] ] );
 $terms_out = field( $one_terms, 'terms' );
 check( 'fields=terms adds terms', is_array( $terms_out ) && count( $terms_out['ingredient'] ?? [] ) === 2, $one_terms );

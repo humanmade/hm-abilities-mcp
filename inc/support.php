@@ -236,8 +236,8 @@ function format_post( WP_Post $post, bool $with_content = false, array $fields =
 		'type'     => $post->post_type,
 		'link'     => (string) get_permalink( $post ),
 		'author'   => format_author( (int) $post->post_author ),
-		'date'     => (string) get_post_time( 'c', false, $post ),
-		'modified' => (string) get_post_modified_time( 'c', false, $post ),
+		'date'     => get_post_time( 'c', false, $post ) ?: null,
+		'modified' => get_post_modified_time( 'c', false, $post ) ?: null,
 	];
 
 	if ( in_array( 'terms', $fields, true ) ) {
@@ -277,8 +277,8 @@ function post_schema( bool $with_content = false ): array {
 			[ 'id', 'name', 'slug' ],
 			__( 'The post author. An unattributed post reports ID 0 and empty strings.', 'hm-abilities-mcp' )
 		),
-		'date'     => prop( 'string', __( 'Published date, ISO 8601 in the site timezone.', 'hm-abilities-mcp' ), [ 'format' => 'date-time' ] ),
-		'modified' => prop( 'string', __( 'Last modified date, ISO 8601 in the site timezone.', 'hm-abilities-mcp' ), [ 'format' => 'date-time' ] ),
+		'date'     => prop( [ 'string', 'null' ], __( 'Published date, ISO 8601 in the site timezone, or null when the stored date is unreadable.', 'hm-abilities-mcp' ), [ 'format' => 'date-time' ] ),
+		'modified' => prop( [ 'string', 'null' ], __( 'Last modified date, ISO 8601 in the site timezone, or null when the stored date is unreadable.', 'hm-abilities-mcp' ), [ 'format' => 'date-time' ] ),
 		'terms'    => prop(
 			'object',
 			__( 'Terms assigned to the post, keyed by taxonomy slug. Returned only when fields includes terms.', 'hm-abilities-mcp' ),
