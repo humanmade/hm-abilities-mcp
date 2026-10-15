@@ -157,8 +157,10 @@ $allow_unresolvable = static function () {
 };
 add_filter( 'hm_abilities_media_allowed_source_hosts', $allow_unresolvable );
 
-$allowed_unresolvable = run( 'hm-abilities/upload-media', [ 'source_url' => 'http://no-such-host.invalid/x.png' ] );
-check( 'an allowlisted host that resolves to nothing is refused before the fetch', code( $allowed_unresolvable ) === 'hm_abilities_source_not_allowed', $allowed_unresolvable );
+// Called directly: the ability's wp_http_validate_url() refuses an unresolvable
+// host first, so only a DNS answer that changes between lookups reaches here.
+$allowed_unresolvable = HM\Abilities\Media\resolve_source_target( 'http://no-such-host.invalid/x.png' );
+check( 'an allowlisted host that resolves to nothing is refused rather than pinned to no address', code( $allowed_unresolvable ) === 'hm_abilities_source_not_allowed', $allowed_unresolvable );
 
 remove_filter( 'hm_abilities_media_allowed_source_hosts', $allow_unresolvable );
 
