@@ -72,7 +72,7 @@ function register(): void {
 							'search'      => [ 'type' => 'string' ],
 							'author'      => [
 								'type'        => [ 'integer', 'string' ],
-								'description' => __( 'Limit to one author, given as a user ID or as a user slug, login, or email. Use list-users to turn a name like "Jane Smith" into a slug, or read author.slug off any returned item.', 'hm-abilities-mcp' ),
+								'description' => __( 'Limit to one author, given as a user ID or as a user slug, login, or email. Email requires the list_users capability. Use list-users to turn a name like "Jane Smith" into a slug, or read author.slug off any returned item.', 'hm-abilities-mcp' ),
 							],
 							'terms'       => [
 								'type'                 => 'object',
@@ -422,8 +422,9 @@ function resolve_post_types( array $input, string $fallback ) {
 /**
  * Resolve the `author` input into a user ID.
  *
- * Accepts a user ID, or a slug, login, or email. A value matching no user is an
- * error rather than an empty result.
+ * Accepts a user ID, slug or login, and an email only from a caller holding
+ * `list_users`, so the filter cannot probe for addresses. A value matching no
+ * user is an error rather than an empty result.
  *
  * @param array<string, mixed> $input Ability input.
  * @return int|\WP_Error User ID, or 0 when no author was given.
@@ -444,7 +445,9 @@ function resolve_author( array $input ) {
 	if ( is_int( $author ) || ( is_string( $author ) && ctype_digit( $author ) ) ) {
 		$user = get_userdata( (int) $author );
 	} else {
-		foreach ( [ 'slug', 'login', 'email' ] as $field ) {
+		$fields = current_user_can( 'list_users' ) ? [ 'slug', 'login', 'email' ] : [ 'slug', 'login' ];
+
+		foreach ( $fields as $field ) {
 			$user = get_user_by( $field, (string) $author );
 
 			if ( $user ) {

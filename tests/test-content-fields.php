@@ -113,6 +113,22 @@ check( 'the other author gets the other posts', field( $by_other, 'total' ) === 
 $bad_author = run( 'hm-abilities/list-content', [ 'post_type' => 'post', 'author' => 'nobody-here' ] );
 check( 'unknown author errors', code( $bad_author ) === 'hm_abilities_author_not_found', $bad_author );
 
+wp_update_user( [ 'ID' => $author_a, 'user_email' => 'ada@example.test' ] );
+
+$by_email = run( 'hm-abilities/list-content', [ 'post_type' => 'post', 'author' => 'ada@example.test', 'per_page' => 100 ] );
+check( 'author filter by email for a caller with list_users', field( $by_email, 'total' ) === 1, $by_email );
+
+$strip_list_users = static function ( $allcaps ) {
+	$allcaps['list_users'] = false;
+	return $allcaps;
+};
+add_filter( 'user_has_cap', $strip_list_users );
+
+$email_probe = run( 'hm-abilities/list-content', [ 'post_type' => 'post', 'author' => 'ada@example.test', 'per_page' => 100 ] );
+check( 'an email matches no author for a caller without list_users', code( $email_probe ) === 'hm_abilities_author_not_found', $email_probe );
+
+remove_filter( 'user_has_cap', $strip_list_users );
+
 echo "\n== list-content: term filter ==\n";
 
 $by_id_term = run( 'hm-abilities/list-content', [ 'post_type' => 'post', 'terms' => [ 'ingredient' => [ (int) $gochujang['term_id'] ] ], 'terms_field' => 'id', 'per_page' => 100 ] );
