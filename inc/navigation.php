@@ -24,6 +24,14 @@ defined( 'ABSPATH' ) || exit;
 const ALLOWED_STATUSES = [ 'publish', 'draft' ];
 
 /**
+ * Most items `update-navigation` accepts at the top level, and in each
+ * top-level item's `children`.
+ *
+ * @var int
+ */
+const MAX_ITEMS = 200;
+
+/**
  * Wire up the module's hooks.
  *
  * @return void
@@ -117,7 +125,7 @@ function register(): void {
 						'id'    => [ 'type' => 'integer' ],
 						'items' => [
 							'type'     => 'array',
-							'maxItems' => 200,
+							'maxItems' => MAX_ITEMS,
 							'items'    => [
 								'type'       => 'object',
 								'properties' => [
@@ -129,7 +137,7 @@ function register(): void {
 									],
 									'children' => [
 										'type'     => 'array',
-										'maxItems' => 200,
+										'maxItems' => MAX_ITEMS,
 										'items'    => [
 											'type'       => 'object',
 											'properties' => [
