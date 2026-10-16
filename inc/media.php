@@ -441,16 +441,35 @@ function request_pinned( string $url, string $ip, string $temp, int $max_bytes )
 }
 
 /**
+ * Creates an empty temp file named after `$name`.
+ *
+ * `wp_tempnam()` returns a path even when it could not create the file, so the
+ * file existing is what shows it worked.
+ *
+ * @param string $name Name to base the temp file on.
+ * @return string|\WP_Error Temp file path.
+ */
+function create_temp_file( string $name ) {
+	$temp = wp_tempnam( $name );
+
+	if ( ! file_exists( $temp ) ) {
+		return Support\error( 'hm_abilities_temp_file_failed', __( 'Could not create a temporary file.', 'hm-abilities-mcp' ), 500 );
+	}
+
+	return $temp;
+}
+
+/**
  * Download a URL to a temp file, bounding the response size and request time.
  *
  * @param string $url Validated source URL.
  * @return string|\WP_Error Temp file path, or an error.
  */
 function download_to_temp( string $url ) {
-	$temp = wp_tempnam( $url );
+	$temp = create_temp_file( $url );
 
-	if ( ! $temp ) {
-		return Support\error( 'hm_abilities_download_failed', __( 'Could not create a temporary file.', 'hm-abilities-mcp' ), 500 );
+	if ( is_wp_error( $temp ) ) {
+		return $temp;
 	}
 
 	$upload_limit = (int) wp_max_upload_size();
