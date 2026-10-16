@@ -205,4 +205,52 @@ check( 'an allowlisted host that resolves to nothing is refused rather than pinn
 
 remove_filter( 'hm_abilities_media_allowed_source_hosts', $allow_unresolvable );
 
+echo "\n== media: base64 upload ==\n";
+
+$image = imagecreatetruecolor( 2, 2 );
+ob_start();
+imagepng( $image );
+$png = base64_encode( (string) ob_get_clean() );
+
+$uploaded = run( 'hm-abilities/upload-media', [ 'data' => $png ] );
+check( 'base64 data imports as an attachment', is_int( field( $uploaded, 'id' ) ) && field( $uploaded, 'already_existed' ) === false, $uploaded );
+// Uploads survive the per-file database reset, so a rerun gets upload-1.png.
+check( 'and is named from its detected type', preg_match( '#/upload(-\d+)?\.png$#', (string) field( $uploaded, 'url' ) ) === 1, $uploaded );
+check( 'and reports no original_url', field( $uploaded, 'original_url' ) === null, $uploaded );
+
+$repeat = run( 'hm-abilities/upload-media', [ 'data' => 'data:image/png;base64,' . $png ] );
+check( 'the same bytes as a data: URI return the existing attachment', field( $repeat, 'id' ) === field( $uploaded, 'id' ) && field( $repeat, 'already_existed' ) === true, $repeat );
+
+$both = run( 'hm-abilities/upload-media', [ 'data' => $png, 'source_url' => 'https://example.com/x.png' ] );
+check( 'source_url and data together are refused', code( $both ) === 'hm_abilities_ambiguous_source', $both );
+
+$neither = run( 'hm-abilities/upload-media', [ 'title' => 'Nothing to import' ] );
+check( 'a call with neither source_url nor data is refused', code( $neither ) === 'hm_abilities_missing_source_url', $neither );
+
+$garbage = run( 'hm-abilities/upload-media', [ 'data' => 'not base64!' ] );
+check( 'data that is not base64 is refused', code( $garbage ) === 'hm_abilities_invalid_data', $garbage );
+
+$tiny_cap = static function () {
+	return 16;
+};
+add_filter( 'hm_abilities_media_max_data_bytes', $tiny_cap );
+
+$too_large = run( 'hm-abilities/upload-media', [ 'data' => $png ] );
+check( 'data over the cap is refused', code( $too_large ) === 'hm_abilities_data_too_large', $too_large );
+check( 'and the error points the caller at source_url', is_wp_error( $too_large ) && str_contains( $too_large->get_error_message(), 'source_url' ), $too_large );
+
+remove_filter( 'hm_abilities_media_max_data_bytes', $tiny_cap );
+
+$author = wp_insert_user( [
+	'user_login' => 'avery_' . wp_rand( 1000, 9999 ),
+	'user_pass'  => wp_generate_password(),
+	'role'       => 'author',
+] );
+wp_set_current_user( $author );
+
+$other_post = run( 'hm-abilities/upload-media', [ 'data' => $png, 'post_id' => $private_post ] );
+check( "an author cannot attach base64 data to another user's post", code( $other_post ) === 'hm_abilities_forbidden', $other_post );
+
+wp_set_current_user( 1 );
+
 summary();
