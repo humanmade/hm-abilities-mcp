@@ -484,14 +484,10 @@ function get_page_blocks( $input = null ) {
  * @return array<string, mixed>|\WP_Error
  */
 function format_page_blocks( int $post_id, bool $include_outline ) {
-	$post = get_post( $post_id );
+	$post = Support\resolve_post( $post_id, 'read_post', 'page' );
 
-	if ( ! $post instanceof WP_Post ) {
-		return Support\error( 'hm_abilities_not_found', __( 'No page found for that ID on the target site.', 'hm-abilities-mcp' ), 404 );
-	}
-
-	if ( ! current_user_can( 'read_post', $post->ID ) ) {
-		return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to read that page.', 'hm-abilities-mcp' ), 403 );
+	if ( is_wp_error( $post ) ) {
+		return $post;
 	}
 
 	$tally = Support\tally_blocks( $post->post_content );
@@ -552,7 +548,7 @@ function find_missing_block( $input = null ) {
 					// `get_page_by_path()` carries no status clause, so a page
 					// the caller may not read is treated as absent.
 					$page    = get_page_by_path( $path, OBJECT, Support\post_types() );
-					$post_id = ( $page instanceof WP_Post && current_user_can( 'read_post', $page->ID ) ) ? $page->ID : 0;
+					$post_id = ( $page instanceof WP_Post && ! is_wp_error( Support\resolve_post( $page->ID, 'read_post', 'page' ) ) ) ? $page->ID : 0;
 				} else {
 					$post_id = Support\static_front_page_id();
 				}
