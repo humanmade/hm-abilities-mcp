@@ -616,6 +616,68 @@ function validate_id( $input, string $key = 'id' ) {
 }
 
 /**
+ * Loads a post the caller holds `$cap` on, or the error to return instead.
+ *
+ * Runs in execute rather than as a permission callback, because the Abilities
+ * API replaces a permission callback's WP_Error with a generic one and the
+ * 404/403 split would be lost.
+ *
+ * @param int           $id       Post ID.
+ * @param string        $cap      Meta capability checked against the post: `read_post` or `edit_post`.
+ * @param string        $noun     Names the object in messages: `post`, `page` or `navigation menu`.
+ * @param callable|null $visible  Receives the WP_Post. False reads as not found (404). Default all visible.
+ * @param callable|null $in_scope Receives the WP_Post. False is forbidden (403). Default all in scope.
+ * @return WP_Post|WP_Error
+ */
+function resolve_post( int $id, string $cap, string $noun, ?callable $visible = null, ?callable $in_scope = null ) {
+	$messages = post_messages( $noun );
+	$post     = get_post( $id );
+
+	if ( ! $post instanceof WP_Post || ( $visible && ! $visible( $post ) ) ) {
+		return error( 'hm_abilities_not_found', $messages['not_found'], 404 );
+	}
+
+	if ( $in_scope && ! $in_scope( $post ) ) {
+		return error( 'hm_abilities_forbidden', __( 'That post type is not available through this ability.', 'hm-abilities-mcp' ), 403 );
+	}
+
+	if ( ! current_user_can( $cap, $post->ID ) ) {
+		return error( 'hm_abilities_forbidden', $messages[ $cap ], 403 );
+	}
+
+	return $post;
+}
+
+/**
+ * Error messages `resolve_post()` uses for one kind of object.
+ *
+ * Whole sentences per noun, because a noun spliced into a translated sentence
+ * cannot be translated.
+ *
+ * @param string $noun `post`, `page` or `navigation menu`.
+ * @return array<string, string> Keyed `not_found`, `read_post` and `edit_post`.
+ */
+function post_messages( string $noun ): array {
+	return match ( $noun ) {
+		'post'            => [
+			'not_found' => __( 'No post found for that ID.', 'hm-abilities-mcp' ),
+			'read_post' => __( 'You are not allowed to read that post.', 'hm-abilities-mcp' ),
+			'edit_post' => __( 'You are not allowed to edit that post.', 'hm-abilities-mcp' ),
+		],
+		'page'            => [
+			'not_found' => __( 'No page found for that ID on the target site.', 'hm-abilities-mcp' ),
+			'read_post' => __( 'You are not allowed to read that page.', 'hm-abilities-mcp' ),
+			'edit_post' => __( 'You are not allowed to edit that page.', 'hm-abilities-mcp' ),
+		],
+		'navigation menu' => [
+			'not_found' => __( 'No navigation menu found for that ID.', 'hm-abilities-mcp' ),
+			'read_post' => __( 'You are not allowed to read that navigation menu.', 'hm-abilities-mcp' ),
+			'edit_post' => __( 'You are not allowed to edit that navigation menu.', 'hm-abilities-mcp' ),
+		],
+	};
+}
+
+/**
  * Permission helper: require a capability.
  *
  * @param string $cap Capability.
