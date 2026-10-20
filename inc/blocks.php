@@ -15,6 +15,14 @@ use WP_Block_Type_Registry;
 defined( 'ABSPATH' ) || exit;
 
 /**
+ * Deepest `innerBlocks` nesting the validator descends into. Past it, the
+ * result is flagged `truncated`.
+ *
+ * @var int
+ */
+const MAX_DEPTH = 50;
+
+/**
  * Wire up the module's hooks.
  *
  * @return void
@@ -49,10 +57,24 @@ function register(): void {
 				[
 					'content' => [
 						'type'        => 'string',
-						'description' => __( 'Block markup to validate.', 'hm-abilities-mcp' ),
+						'maxLength'   => 262144,
+						'description' => __( 'Block markup to validate. Capped at 256 KB.', 'hm-abilities-mcp' ),
 					],
 				],
 				[ 'content' ]
+			),
+			'output_schema'       => Support\output_object(
+				[
+					'valid'       => Support\prop( 'boolean', __( 'True when every block type found is registered.', 'hm-abilities-mcp' ) ),
+					'block_count' => Support\prop( 'integer', __( 'Blocks walked, counting nested ones and excluding freeform chunks between blocks.', 'hm-abilities-mcp' ) ),
+					'invalid'     => Support\output_list(
+						[ 'type' => 'string' ],
+						__( 'Names of the block types that are not registered, each listed once.', 'hm-abilities-mcp' )
+					),
+					/* translators: %d: deepest nesting level walked. */
+					'truncated'   => Support\prop( 'boolean', sprintf( __( 'True when nesting ran past %d levels, leaving the deeper blocks unchecked.', 'hm-abilities-mcp' ), MAX_DEPTH ) ),
+				],
+				[ 'valid', 'block_count', 'invalid', 'truncated' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\validate_blocks',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
@@ -73,6 +95,23 @@ function register(): void {
 						'description' => __( 'Block namespace prefix filter.', 'hm-abilities-mcp' ),
 					],
 				]
+			),
+			'output_schema'       => Support\output_object(
+				[
+					'block_types' => Support\output_list(
+						Support\output_object(
+							[
+								'name'     => Support\prop( 'string', __( 'Block type name, for instance core/paragraph.', 'hm-abilities-mcp' ) ),
+								'title'    => Support\prop( 'string', __( 'Human-readable block title.', 'hm-abilities-mcp' ) ),
+								'category' => Support\prop( 'string', __( 'Editor category the block sits in. Empty when the block declares none.', 'hm-abilities-mcp' ) ),
+							],
+							[ 'name', 'title', 'category' ]
+						),
+						__( 'The matching block types, in registry order.', 'hm-abilities-mcp' )
+					),
+					'count'       => Support\prop( 'integer', __( 'How many block types are listed. Every match is returned, so this is not a page.', 'hm-abilities-mcp' ) ),
+				],
+				[ 'block_types', 'count' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_block_types',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
@@ -111,6 +150,8 @@ function can_read() {
 /**
  * Validate block markup.
  *
+ * Nesting past MAX_DEPTH is left unchecked and flagged `truncated`.
+ *
  * @param mixed $input Ability input.
  * @return array<string, mixed>|\WP_Error
  */
@@ -121,11 +162,17 @@ function validate_blocks( $input = null ) {
 		return Support\error( 'hm_abilities_missing_content', __( 'Block markup content is required.', 'hm-abilities-mcp' ), 400 );
 	}
 
-	$registry = WP_Block_Type_Registry::get_instance();
-	$invalid  = [];
-	$count    = 0;
+	$registry  = WP_Block_Type_Registry::get_instance();
+	$invalid   = [];
+	$count     = 0;
+	$truncated = false;
 
-	$walk = static function ( array $blocks, callable $walk_fn ) use ( &$invalid, &$count, $registry ): void {
+	$walk = static function ( array $blocks, callable $walk_fn, int $depth ) use ( &$invalid, &$count, &$truncated, $registry ): void {
+		if ( $depth > MAX_DEPTH ) {
+			$truncated = true;
+			return;
+		}
+
 		foreach ( $blocks as $block ) {
 			$name = $block['blockName'] ?? null;
 
@@ -140,17 +187,18 @@ function validate_blocks( $input = null ) {
 			}
 
 			if ( ! empty( $block['innerBlocks'] ) ) {
-				$walk_fn( $block['innerBlocks'], $walk_fn );
+				$walk_fn( $block['innerBlocks'], $walk_fn, $depth + 1 );
 			}
 		}
 	};
 
-	$walk( parse_blocks( $input['content'] ), $walk );
+	$walk( parse_blocks( $input['content'] ), $walk, 0 );
 
 	return [
 		'valid'       => $invalid === [],
 		'block_count' => $count,
 		'invalid'     => $invalid,
+		'truncated'   => $truncated,
 	];
 }
 

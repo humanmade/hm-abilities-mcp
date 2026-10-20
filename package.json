@@ -11,7 +11,8 @@
 		"env:stop": "npx @wordpress/env stop",
 		"format": "wp-scripts format",
 		"lint:php": "composer phpcs",
-		"test": "bash tests/run.sh"
+		"test": "bash tests/run.sh",
+		"test:multisite": "bash tests/run.sh --multisite"
 	},
 	"author": "Human Made Limited",
 	"license": "GPL-2.0-or-later",

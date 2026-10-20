@@ -11,6 +11,8 @@ namespace HM\Abilities\Support;
 
 use WP_Error;
 use WP_Post;
+use WP_Query;
+use WP_Term;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -45,6 +47,80 @@ function post_types(): array {
 	$post_types = apply_filters( 'hm_abilities_post_types', [ 'page', 'post' ] );
 
 	return is_array( $post_types ) ? array_values( array_filter( array_map( 'strval', $post_types ) ) ) : [ 'page', 'post' ];
+}
+
+/**
+ * Taxonomies the content abilities may read terms from.
+ *
+ * Defaults to the public taxonomies attached to the exposed post types. A
+ * taxonomy registered `public => false` is excluded until a site opts it in
+ * with the `hm_abilities_taxonomies` filter.
+ *
+ * @return string[] Taxonomy slugs, each one registered.
+ */
+function taxonomies(): array {
+	$defaults = [];
+
+	foreach ( get_object_taxonomies( post_types(), 'objects' ) as $taxonomy ) {
+		if ( $taxonomy->public ) {
+			$defaults[] = $taxonomy->name;
+		}
+	}
+
+	/**
+	 * Filters the taxonomies the content abilities may read terms from.
+	 *
+	 * @param string[] $taxonomies Taxonomy slugs. Default the public taxonomies on the exposed post types.
+	 */
+	$taxonomies = apply_filters( 'hm_abilities_taxonomies', $defaults );
+
+	if ( ! is_array( $taxonomies ) ) {
+		return $defaults;
+	}
+
+	return array_values( array_filter( array_map( 'strval', $taxonomies ), 'taxonomy_exists' ) );
+}
+
+/**
+ * Extras a caller can add to a formatted post with the `fields` input.
+ *
+ * Author and dates are not listed: they come back on every item regardless.
+ *
+ * @return string[] Field names.
+ */
+function post_fields(): array {
+	return [ 'terms' ];
+}
+
+/**
+ * Adds the `fields` input-schema property to an ability that formats posts.
+ *
+ * @param array<string, mixed> $properties Existing schema properties.
+ * @return array<string, mixed> Properties with `fields` added.
+ */
+function with_fields( array $properties ): array {
+	$properties['fields'] = [
+		'type'        => 'array',
+		'items'       => [
+			'type' => 'string',
+			'enum' => post_fields(),
+		],
+		'description' => __( 'Extra fields to include on each item. "terms" adds the taxonomy terms the item is assigned to, left out by default because one item can carry many.', 'hm-abilities-mcp' ),
+	];
+
+	return $properties;
+}
+
+/**
+ * Reads the `fields` list out of ability input, dropping unknown names.
+ *
+ * @param array<string, mixed> $input Ability input.
+ * @return string[] Field names, each one in `post_fields()`.
+ */
+function requested_fields( array $input ): array {
+	$fields = ( isset( $input['fields'] ) && is_array( $input['fields'] ) ) ? $input['fields'] : [];
+
+	return array_values( array_intersect( array_map( 'strval', $fields ), post_fields() ) );
 }
 
 /**
@@ -109,27 +185,252 @@ function status_query_args( $status ): array {
 }
 
 /**
+ * Require the capability a status change needs.
+ *
+ * `draft` and `pending` pass, since the per-post edit check covers them. Every
+ * other status needs `publish_posts`.
+ *
+ * @param string $status    Status being set.
+ * @param string $post_type Post type the status is being set on.
+ * @return WP_Error|null Error when the change is not allowed, null when it is.
+ */
+function require_status_cap( string $status, string $post_type ): ?WP_Error {
+	if ( in_array( $status, [ 'draft', 'pending' ], true ) ) {
+		return null;
+	}
+
+	$object = get_post_type_object( $post_type );
+
+	if ( $object && current_user_can( $object->cap->publish_posts ) ) {
+		return null;
+	}
+
+	return error(
+		'hm_abilities_cannot_publish',
+		sprintf(
+			/* translators: %s: post status being set, e.g. "publish". */
+			__( 'You are not allowed to set the status to %s on this post type.', 'hm-abilities-mcp' ),
+			$status
+		),
+		403
+	);
+}
+
+/**
  * Shape a post for ability output.
  *
- * @param WP_Post $post         Post object.
- * @param bool    $with_content Include raw block markup.
+ * Dates are ISO 8601 in the site timezone. `terms` appears only when asked for
+ * through `$fields`; see `post_fields()`.
+ *
+ * @param WP_Post  $post         Post object.
+ * @param bool     $with_content Include raw block markup.
+ * @param string[] $fields       Extra fields to include. Accepts 'terms'. Default empty.
  * @return array<string, mixed>
  */
-function format_post( WP_Post $post, bool $with_content = false ): array {
+function format_post( WP_Post $post, bool $with_content = false, array $fields = [] ): array {
 	$data = [
-		'id'     => $post->ID,
-		'title'  => get_the_title( $post ),
-		'slug'   => $post->post_name,
-		'status' => $post->post_status,
-		'type'   => $post->post_type,
-		'link'   => (string) get_permalink( $post ),
+		'id'       => $post->ID,
+		'title'    => get_the_title( $post ),
+		'slug'     => $post->post_name,
+		'status'   => $post->post_status,
+		'type'     => $post->post_type,
+		'link'     => (string) get_permalink( $post ),
+		'author'   => format_author( (int) $post->post_author ),
+		'date'     => get_post_time( 'c', false, $post ) ?: null,
+		'modified' => get_post_modified_time( 'c', false, $post ) ?: null,
 	];
+
+	if ( in_array( 'terms', $fields, true ) ) {
+		$data['terms'] = post_terms( $post );
+	}
 
 	if ( $with_content ) {
 		$data['content'] = $post->post_content;
 	}
 
 	return $data;
+}
+
+/**
+ * Output schema for a post, describing `format_post()`.
+ *
+ * `terms` is optional because it appears only when the caller names it in
+ * `fields`.
+ *
+ * @param bool $with_content Match the call that appends raw block markup.
+ * @return array<string, mixed>
+ */
+function post_schema( bool $with_content = false ): array {
+	$properties = [
+		'id'       => prop( 'integer', __( 'Post ID.', 'hm-abilities-mcp' ) ),
+		'title'    => prop( 'string', __( 'Rendered post title.', 'hm-abilities-mcp' ) ),
+		'slug'     => prop( 'string', __( 'Post slug.', 'hm-abilities-mcp' ) ),
+		'status'   => prop( 'string', __( 'Post status, for instance publish or draft.', 'hm-abilities-mcp' ) ),
+		'type'     => prop( 'string', __( 'Post type slug.', 'hm-abilities-mcp' ) ),
+		'link'     => prop( 'string', __( 'Permalink to the post.', 'hm-abilities-mcp' ), [ 'format' => 'uri' ] ),
+		'author'   => output_object(
+			[
+				'id'   => prop( 'integer', __( 'Author user ID.', 'hm-abilities-mcp' ) ),
+				'name' => prop( 'string', __( 'Author display name.', 'hm-abilities-mcp' ) ),
+				'slug' => prop( 'string', __( 'Author slug, which is the value the author filter on the list abilities accepts.', 'hm-abilities-mcp' ) ),
+			],
+			[ 'id', 'name', 'slug' ],
+			__( 'The post author. An unattributed post reports ID 0 and empty strings.', 'hm-abilities-mcp' )
+		),
+		'date'     => prop( [ 'string', 'null' ], __( 'Published date, ISO 8601 in the site timezone, or null when the stored date is unreadable.', 'hm-abilities-mcp' ), [ 'format' => 'date-time' ] ),
+		'modified' => prop( [ 'string', 'null' ], __( 'Last modified date, ISO 8601 in the site timezone, or null when the stored date is unreadable.', 'hm-abilities-mcp' ), [ 'format' => 'date-time' ] ),
+		'terms'    => prop(
+			'object',
+			__( 'Terms assigned to the post, keyed by taxonomy slug. Returned only when fields includes terms.', 'hm-abilities-mcp' ),
+			[ 'additionalProperties' => output_list( term_schema() ) ]
+		),
+	];
+
+	$required = [ 'id', 'title', 'slug', 'status', 'type', 'link', 'author', 'date', 'modified' ];
+
+	if ( $with_content ) {
+		$properties['content'] = prop( 'string', __( 'Raw block markup stored for the post.', 'hm-abilities-mcp' ) );
+
+		$required[] = 'content';
+	}
+
+	return output_object( $properties, $required );
+}
+
+/**
+ * Shape a post author for ability output.
+ *
+ * `slug` is the value the `author` filter accepts. An unattributed post
+ * reports ID 0 and empty strings.
+ *
+ * @param int $user_id Author user ID.
+ * @return array{id: int, name: string, slug: string}
+ */
+function format_author( int $user_id ): array {
+	$user = $user_id > 0 ? get_userdata( $user_id ) : false;
+
+	return [
+		'id'   => $user_id,
+		'name' => $user ? $user->display_name : '',
+		'slug' => $user ? $user->user_nicename : '',
+	];
+}
+
+/**
+ * Terms assigned to a post, keyed by taxonomy.
+ *
+ * Skips taxonomies the post type does not register and those `taxonomies()`
+ * does not expose.
+ *
+ * @param WP_Post $post Post object.
+ * @return array<string, array<int, array<string, mixed>>> Taxonomy slug => terms.
+ */
+function post_terms( WP_Post $post ): array {
+	$out = [];
+
+	foreach ( taxonomies() as $taxonomy ) {
+		if ( ! is_object_in_taxonomy( $post->post_type, $taxonomy ) ) {
+			continue;
+		}
+
+		$terms = get_the_terms( $post, $taxonomy );
+
+		if ( ! is_array( $terms ) || $terms === [] ) {
+			continue;
+		}
+
+		$out[ $taxonomy ] = array_map( __NAMESPACE__ . '\\format_term', $terms );
+	}
+
+	return $out;
+}
+
+/**
+ * Shape a term for ability output.
+ *
+ * `count` is the term's total use across the site, not a count within the
+ * current result set.
+ *
+ * @param WP_Term $term Term object.
+ * @return array<string, mixed>
+ */
+function format_term( WP_Term $term ): array {
+	return [
+		'id'       => (int) $term->term_id,
+		'name'     => $term->name,
+		'slug'     => $term->slug,
+		'taxonomy' => $term->taxonomy,
+		'count'    => (int) $term->count,
+		'parent'   => (int) $term->parent,
+	];
+}
+
+/**
+ * Output schema for a term, describing `format_term()`.
+ *
+ * @return array<string, mixed>
+ */
+function term_schema(): array {
+	return output_object(
+		[
+			'id'       => prop( 'integer', __( 'Term ID.', 'hm-abilities-mcp' ) ),
+			'name'     => prop( 'string', __( 'Term name.', 'hm-abilities-mcp' ) ),
+			'slug'     => prop( 'string', __( 'Term slug, which is the value the terms filter on list-content accepts.', 'hm-abilities-mcp' ) ),
+			'taxonomy' => prop( 'string', __( 'Taxonomy the term belongs to.', 'hm-abilities-mcp' ) ),
+			'count'    => prop( 'integer', __( 'How much content across the site uses the term, not a count within these results.', 'hm-abilities-mcp' ) ),
+			'parent'   => prop( 'integer', __( 'Parent term ID, 0 for a top-level term.', 'hm-abilities-mcp' ) ),
+		],
+		[ 'id', 'name', 'slug', 'taxonomy', 'count', 'parent' ]
+	);
+}
+
+/**
+ * Wrap formatted items in the standard list envelope.
+ *
+ * `count` is this page, `total` the whole result set.
+ *
+ * @param WP_Query             $query Executed query the items came from.
+ * @param array<int, mixed>    $items Formatted items for the current page.
+ * @return array<string, mixed>
+ */
+function list_response( WP_Query $query, array $items ): array {
+	$page  = max( 1, (int) $query->get( 'paged' ) );
+	$pages = (int) $query->max_num_pages;
+
+	return [
+		'items'       => $items,
+		'count'       => count( $items ),
+		'total'       => (int) $query->found_posts,
+		'page'        => $page,
+		'total_pages' => $pages,
+		'has_more'    => $page < $pages,
+		'next_page'   => $page < $pages ? $page + 1 : null,
+	];
+}
+
+/**
+ * Output schema for the standard list envelope `list_response()` returns.
+ *
+ * Extra properties are merged ahead of the envelope's own, so an ability that
+ * adds its own keys lists them first.
+ *
+ * @param array<string, mixed> $item_schema Schema for one entry of `items`.
+ * @param array<string, mixed> $properties  Extra properties this ability adds.
+ * @param string[]             $required    Names of those extras that are always present.
+ * @return array<string, mixed>
+ */
+function list_schema( array $item_schema, array $properties = [], array $required = [] ): array {
+	$envelope = [
+		'items'       => output_list( $item_schema, __( 'The results on this page.', 'hm-abilities-mcp' ) ),
+		'count'       => prop( 'integer', __( 'How many results are on this page.', 'hm-abilities-mcp' ) ),
+		'total'       => prop( 'integer', __( 'How many results match across every page.', 'hm-abilities-mcp' ) ),
+		'page'        => prop( 'integer', __( 'The page number these results came from, counting from 1.', 'hm-abilities-mcp' ) ),
+		'total_pages' => prop( 'integer', __( 'How many pages the full result set spans.', 'hm-abilities-mcp' ) ),
+		'has_more'    => prop( 'boolean', __( 'True when a further page of results exists.', 'hm-abilities-mcp' ) ),
+		'next_page'   => prop( [ 'integer', 'null' ], __( 'The page to request next, or null on the last page.', 'hm-abilities-mcp' ) ),
+	];
+
+	return output_object( $properties + $envelope, array_merge( $required, array_keys( $envelope ) ) );
 }
 
 /**
@@ -188,6 +489,89 @@ function object_schema( array $properties, array $required = [] ): array {
 }
 
 /**
+ * Build one schema property.
+ *
+ * Takes a union type as an array, as JSON Schema does: `prop( [ 'integer',
+ * 'null' ], ... )`. Anything beyond type and description — `format`, `enum`,
+ * `minimum` — goes in `$extra` and is merged in as given.
+ *
+ * @param string|string[]      $type        JSON type, or a list of them.
+ * @param string               $description What the property holds.
+ * @param array<string, mixed> $extra       Further schema keywords.
+ * @return array<string, mixed>
+ */
+function prop( $type, string $description, array $extra = [] ): array {
+	return [
+		'type'        => $type,
+		'description' => $description,
+	] + $extra;
+}
+
+/**
+ * Build an object output schema, closed to properties it does not name.
+ *
+ * The output counterpart to `object_schema()`, whose top-level `default` an
+ * output schema must not carry.
+ *
+ * @param array<string, mixed> $properties  Schema properties.
+ * @param string[]             $required    Names of the properties always present.
+ * @param string               $description What the object holds. Omitted when empty.
+ * @return array<string, mixed>
+ */
+function output_object( array $properties, array $required, string $description = '' ): array {
+	$schema = [
+		'type'                 => 'object',
+		'properties'           => $properties,
+		'required'             => $required,
+		'additionalProperties' => false,
+	];
+
+	if ( $description !== '' ) {
+		$schema['description'] = $description;
+	}
+
+	return $schema;
+}
+
+/**
+ * Add properties to an object output schema built by `output_object()`.
+ *
+ * Reuses a shared schema where an ability returns that shape with extras on
+ * top, so the shared part stays described in one place.
+ *
+ * @param array<string, mixed> $schema     Object schema to extend.
+ * @param array<string, mixed> $properties Properties to add.
+ * @param string[]             $required   Names of the added properties always present.
+ * @return array<string, mixed>
+ */
+function extend_object( array $schema, array $properties, array $required = [] ): array {
+	$schema['properties'] += $properties;
+	$schema['required']    = array_merge( $schema['required'], $required );
+
+	return $schema;
+}
+
+/**
+ * Build an array output schema.
+ *
+ * @param array<string, mixed> $item_schema Schema for one entry.
+ * @param string               $description What the list holds. Omitted when empty.
+ * @return array<string, mixed>
+ */
+function output_list( array $item_schema, string $description = '' ): array {
+	$schema = [
+		'type'  => 'array',
+		'items' => $item_schema,
+	];
+
+	if ( $description !== '' ) {
+		$schema['description'] = $description;
+	}
+
+	return $schema;
+}
+
+/**
  * Build a WP_Error with an HTTP status attached.
  *
  * @param string               $code    Machine code.
@@ -229,6 +613,68 @@ function validate_id( $input, string $key = 'id' ) {
 	}
 
 	return $input[ $key ];
+}
+
+/**
+ * Loads a post the caller holds `$cap` on, or the error to return instead.
+ *
+ * Runs in execute rather than as a permission callback, because the Abilities
+ * API replaces a permission callback's WP_Error with a generic one and the
+ * 404/403 split would be lost.
+ *
+ * @param int           $id       Post ID.
+ * @param string        $cap      Meta capability checked against the post: `read_post` or `edit_post`.
+ * @param string        $noun     Names the object in messages: `post`, `page` or `navigation menu`.
+ * @param callable|null $visible  Receives the WP_Post. False reads as not found (404). Default all visible.
+ * @param callable|null $in_scope Receives the WP_Post. False is forbidden (403). Default all in scope.
+ * @return WP_Post|WP_Error
+ */
+function resolve_post( int $id, string $cap, string $noun, ?callable $visible = null, ?callable $in_scope = null ) {
+	$messages = post_messages( $noun );
+	$post     = get_post( $id );
+
+	if ( ! $post instanceof WP_Post || ( $visible && ! $visible( $post ) ) ) {
+		return error( 'hm_abilities_not_found', $messages['not_found'], 404 );
+	}
+
+	if ( $in_scope && ! $in_scope( $post ) ) {
+		return error( 'hm_abilities_forbidden', __( 'That post type is not available through this ability.', 'hm-abilities-mcp' ), 403 );
+	}
+
+	if ( ! current_user_can( $cap, $post->ID ) ) {
+		return error( 'hm_abilities_forbidden', $messages[ $cap ], 403 );
+	}
+
+	return $post;
+}
+
+/**
+ * Error messages `resolve_post()` uses for one kind of object.
+ *
+ * Whole sentences per noun, because a noun spliced into a translated sentence
+ * cannot be translated.
+ *
+ * @param string $noun `post`, `page` or `navigation menu`.
+ * @return array<string, string> Keyed `not_found`, `read_post` and `edit_post`.
+ */
+function post_messages( string $noun ): array {
+	return match ( $noun ) {
+		'post'            => [
+			'not_found' => __( 'No post found for that ID.', 'hm-abilities-mcp' ),
+			'read_post' => __( 'You are not allowed to read that post.', 'hm-abilities-mcp' ),
+			'edit_post' => __( 'You are not allowed to edit that post.', 'hm-abilities-mcp' ),
+		],
+		'page'            => [
+			'not_found' => __( 'No page found for that ID on the target site.', 'hm-abilities-mcp' ),
+			'read_post' => __( 'You are not allowed to read that page.', 'hm-abilities-mcp' ),
+			'edit_post' => __( 'You are not allowed to edit that page.', 'hm-abilities-mcp' ),
+		],
+		'navigation menu' => [
+			'not_found' => __( 'No navigation menu found for that ID.', 'hm-abilities-mcp' ),
+			'read_post' => __( 'You are not allowed to read that navigation menu.', 'hm-abilities-mcp' ),
+			'edit_post' => __( 'You are not allowed to edit that navigation menu.', 'hm-abilities-mcp' ),
+		],
+	};
 }
 
 /**
@@ -321,6 +767,24 @@ function tally_to_list( array $tally ): array {
 	}
 
 	return $list;
+}
+
+/**
+ * Output schema for a block tally, describing `tally_to_list()`.
+ *
+ * @return array<string, mixed>
+ */
+function block_tally_schema(): array {
+	return output_list(
+		output_object(
+			[
+				'name'  => prop( 'string', __( 'Block type name, for instance core/paragraph.', 'hm-abilities-mcp' ) ),
+				'count' => prop( 'integer', __( 'How many times the block type appears.', 'hm-abilities-mcp' ) ),
+			],
+			[ 'name', 'count' ]
+		),
+		__( 'Block types and their use counts, most used first.', 'hm-abilities-mcp' )
+	);
 }
 
 /**
@@ -628,6 +1092,35 @@ function resolve_site_batch( $input, int $default_per_page, int $max ) {
 }
 
 /**
+ * Output schema for the `sites` block `resolve_site_batch()` returns.
+ *
+ * `page`, `per_page` and `total_pages` are optional: a caller that named
+ * `site_ids` gets the explicit selection, which has no pages to walk.
+ *
+ * @return array<string, mixed>
+ */
+function site_batch_schema(): array {
+	return output_object(
+		[
+			'selection'   => prop(
+				'string',
+				__( 'How the sites were chosen: a page of the network, or the site_ids the caller named.', 'hm-abilities-mcp' ),
+				[ 'enum' => [ 'network_page', 'explicit' ] ]
+			),
+			'total'       => prop( 'integer', __( 'Live sites in the network, or the number named for an explicit selection.', 'hm-abilities-mcp' ) ),
+			'processed'   => prop( 'integer', __( 'How many sites this response covered.', 'hm-abilities-mcp' ) ),
+			'has_more'    => prop( 'boolean', __( 'True when sites remain outside this response.', 'hm-abilities-mcp' ) ),
+			'next_page'   => prop( [ 'integer', 'null' ], __( 'The page to request next, or null when nothing remains.', 'hm-abilities-mcp' ) ),
+			'page'        => prop( 'integer', __( 'The page covered. Absent for an explicit selection.', 'hm-abilities-mcp' ) ),
+			'per_page'    => prop( 'integer', __( 'Sites per page. Absent for an explicit selection.', 'hm-abilities-mcp' ) ),
+			'total_pages' => prop( 'integer', __( 'Pages the network spans. Absent for an explicit selection.', 'hm-abilities-mcp' ) ),
+		],
+		[ 'selection', 'total', 'processed', 'has_more', 'next_page' ],
+		__( 'Which subsites this response covered, and how to reach the rest.', 'hm-abilities-mcp' )
+	);
+}
+
+/**
  * Validate a caller-supplied `site_ids` list into a bounded blog ID list.
  *
  * Rejects an over-long list rather than silently truncating it, so a caller
@@ -824,7 +1317,12 @@ function check_cap_on_site( $input, string $cap, bool $require_live ) {
 	$blog_id = resolve_target_site( $input );
 
 	if ( is_wp_error( $blog_id ) ) {
-		return $blog_id;
+		/*
+		 * Not a pass. The Abilities API replaces a permission-callback error
+		 * with a generic one, so the bad `site_id` is left to `on_site()`,
+		 * which returns it with its code intact and runs nothing else.
+		 */
+		return true;
 	}
 
 	if ( $require_live ) {
@@ -854,6 +1352,22 @@ function current_site_summary(): array {
 		'name'    => get_bloginfo( 'name' ),
 		'url'     => home_url( '/' ),
 	];
+}
+
+/**
+ * Output schema for a site summary, describing `current_site_summary()`.
+ *
+ * @return array<string, mixed>
+ */
+function site_summary_schema(): array {
+	return output_object(
+		[
+			'site_id' => prop( 'integer', __( 'Blog ID within the network, which the site_id input takes.', 'hm-abilities-mcp' ) ),
+			'name'    => prop( 'string', __( 'Site name.', 'hm-abilities-mcp' ) ),
+			'url'     => prop( 'string', __( 'Site home URL.', 'hm-abilities-mcp' ), [ 'format' => 'uri' ] ),
+		],
+		[ 'site_id', 'name', 'url' ]
+	);
 }
 
 /**
@@ -942,6 +1456,14 @@ function nav_items_to_markup( array $items ): string {
 }
 
 /**
+ * Deepest navigation nesting the serializer builds. The editor itself offers
+ * one level of submenu.
+ *
+ * @var int
+ */
+const MAX_NAV_DEPTH = 5;
+
+/**
  * Build parsed-block structures for a navigation item list (recursive).
  *
  * Returns the block array shape WordPress core expects, so serialization runs
@@ -949,11 +1471,18 @@ function nav_items_to_markup( array $items ): string {
  * the comment markup by hand would let a label containing "-->" or "--" break
  * the block delimiter.
  *
+ * Items nested deeper than `MAX_NAV_DEPTH` are dropped rather than serialized.
+ *
  * @param array<int, array<string, mixed>> $items Navigation items.
+ * @param int                              $depth Current nesting level.
  * @return array<int, array<string, mixed>>
  */
-function nav_items_to_blocks( array $items ): array {
+function nav_items_to_blocks( array $items, int $depth = 0 ): array {
 	$blocks = [];
+
+	if ( $depth >= MAX_NAV_DEPTH ) {
+		return $blocks;
+	}
 
 	foreach ( $items as $item ) {
 		if ( ! is_array( $item ) || empty( $item['label'] ) ) {
@@ -967,7 +1496,7 @@ function nav_items_to_blocks( array $items ): array {
 		];
 
 		$children     = isset( $item['children'] ) && is_array( $item['children'] ) ? $item['children'] : [];
-		$inner_blocks = $children ? nav_items_to_blocks( $children ) : [];
+		$inner_blocks = $children ? nav_items_to_blocks( $children, $depth + 1 ) : [];
 
 		$blocks[] = [
 			'blockName'    => $inner_blocks ? 'core/navigation-submenu' : 'core/navigation-link',
@@ -1022,4 +1551,31 @@ function blocks_to_items( array $blocks ): array {
 	}
 
 	return $items;
+}
+
+/**
+ * Output schema for navigation items, describing `markup_to_nav_items()`.
+ *
+ * `children` nests items of this same shape and is described rather than
+ * declared: the validator resolves no `$ref`.
+ *
+ * @param string $description What the list holds. Omitted when empty.
+ * @return array<string, mixed>
+ */
+function nav_items_schema( string $description = '' ): array {
+	return output_list(
+		output_object(
+			[
+				'label'    => prop( 'string', __( 'Link text.', 'hm-abilities-mcp' ) ),
+				'url'      => prop( 'string', __( 'Link target. Empty for a submenu that points nowhere itself.', 'hm-abilities-mcp' ) ),
+				'kind'     => prop( 'string', __( 'What the link points at, for instance custom or post-type.', 'hm-abilities-mcp' ) ),
+				'children' => output_list(
+					[ 'type' => 'object' ],
+					__( 'Submenu entries, each the same shape as this item. Present only on a submenu that has entries.', 'hm-abilities-mcp' )
+				),
+			],
+			[ 'label', 'url', 'kind' ]
+		),
+		$description
+	);
 }
