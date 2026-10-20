@@ -87,6 +87,7 @@ function register(): void {
 					]
 				)
 			),
+			'output_schema'       => Support\list_schema( user_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_users',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => [
@@ -210,4 +211,27 @@ function format_user( WP_User $user, bool $can_list ): array {
 	}
 
 	return $data;
+}
+
+/**
+ * Output schema for a user, describing `format_user()`.
+ *
+ * `roles` is optional because it is returned only to a caller holding
+ * `list_users`.
+ *
+ * @return array<string, mixed>
+ */
+function user_schema(): array {
+	return Support\output_object(
+		[
+			'id'    => Support\prop( 'integer', __( 'User ID.', 'hm-abilities-mcp' ) ),
+			'name'  => Support\prop( 'string', __( 'User display name.', 'hm-abilities-mcp' ) ),
+			'slug'  => Support\prop( 'string', __( 'User slug, which is the value the author filter on list-content accepts.', 'hm-abilities-mcp' ) ),
+			'roles' => Support\output_list(
+				[ 'type' => 'string' ],
+				__( 'Roles the user holds on the targeted site. Returned only to a caller holding the list_users capability.', 'hm-abilities-mcp' )
+			),
+		],
+		[ 'id', 'name', 'slug' ]
+	);
 }

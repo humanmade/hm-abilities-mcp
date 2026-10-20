@@ -102,6 +102,7 @@ function register(): void {
 					)
 				)
 			),
+			'output_schema'       => Support\list_schema( Support\post_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -149,6 +150,7 @@ function register(): void {
 					)
 				)
 			),
+			'output_schema'       => Support\list_schema( Support\post_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_recent_articles',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -174,6 +176,7 @@ function register(): void {
 				),
 				[ 'id' ]
 			),
+			'output_schema'       => Support\post_schema( true ),
 			'execute_callback'    => __NAMESPACE__ . '\\get_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -208,6 +211,7 @@ function register(): void {
 				),
 				[ 'post_type', 'title' ]
 			),
+			'output_schema'       => Support\post_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\create_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
 			'meta'                => meta(
@@ -244,6 +248,7 @@ function register(): void {
 				),
 				[ 'id' ]
 			),
+			'output_schema'       => Support\post_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\update_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
 			'meta'                => meta( $write ),
@@ -371,6 +376,16 @@ function run_post_query( array $args, array $fields ): array {
 	);
 
 	return Support\list_response( $query, $items );
+}
+
+/**
+ * Whether a post's type is one the content abilities expose.
+ *
+ * @param WP_Post $post Post.
+ * @return bool
+ */
+function is_exposed( WP_Post $post ): bool {
+	return in_array( $post->post_type, Support\post_types(), true );
 }
 
 /**
@@ -607,18 +622,10 @@ function get_content( $input = null ) {
 				return $id;
 			}
 
-			$post = get_post( $id );
+			$post = Support\resolve_post( $id, 'read_post', 'post', in_scope: __NAMESPACE__ . '\\is_exposed' );
 
-			if ( ! $post instanceof WP_Post ) {
-				return Support\error( 'hm_abilities_not_found', __( 'No post found for that ID.', 'hm-abilities-mcp' ), 404 );
-			}
-
-			if ( ! in_array( $post->post_type, Support\post_types(), true ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'That post type is not available through this ability.', 'hm-abilities-mcp' ), 403 );
-			}
-
-			if ( ! current_user_can( 'read_post', $post->ID ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to read that post.', 'hm-abilities-mcp' ), 403 );
+			if ( is_wp_error( $post ) ) {
+				return $post;
 			}
 
 			return Support\format_post( $post, true, Support\requested_fields( is_array( $input ) ? $input : [] ) );
@@ -710,18 +717,10 @@ function update_content( $input = null ) {
 				return $id;
 			}
 
-			$post = get_post( $id );
+			$post = Support\resolve_post( $id, 'edit_post', 'post', in_scope: __NAMESPACE__ . '\\is_exposed' );
 
-			if ( ! $post instanceof WP_Post ) {
-				return Support\error( 'hm_abilities_not_found', __( 'No post found for that ID.', 'hm-abilities-mcp' ), 404 );
-			}
-
-			if ( ! in_array( $post->post_type, Support\post_types(), true ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'That post type is not available through this ability.', 'hm-abilities-mcp' ), 403 );
-			}
-
-			if ( ! current_user_can( 'edit_post', $post->ID ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to edit that post.', 'hm-abilities-mcp' ), 403 );
+			if ( is_wp_error( $post ) ) {
+				return $post;
 			}
 
 			$update = [ 'ID' => $id ];

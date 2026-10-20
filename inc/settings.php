@@ -96,6 +96,7 @@ function register(): void {
 			'description'         => __( 'Read the WordPress General, Reading (including search engine visibility), and permalink settings.', 'hm-abilities-mcp' ),
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema( Support\with_site_id( [] ) ),
+			'output_schema'       => snapshot_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\get_settings',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta(
@@ -115,6 +116,7 @@ function register(): void {
 			'description'         => __( 'Update WordPress General, Reading (including search engine visibility), and permalink settings. Send any subset of the supported keys.', 'hm-abilities-mcp' ),
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema( Support\with_site_id( update_properties() ) ),
+			'output_schema'       => snapshot_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\update_settings',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
 			'meta'                => meta(
@@ -315,6 +317,39 @@ function snapshot(): array {
 	}
 
 	return $out;
+}
+
+/**
+ * Output schema for `snapshot()`, which both settings abilities return.
+ *
+ * Keys and types come from `settings_map()`, so a key added there carries
+ * through. Descriptions are borrowed from the write schema.
+ *
+ * @return array<string, mixed>
+ */
+function snapshot_schema(): array {
+	$writable   = update_properties();
+	$properties = [];
+
+	foreach ( settings_map() as $key => $spec ) {
+		$properties[ $key ] = Support\prop( schema_type( $spec['type'] ), $writable[ $key ]['description'] ?? '' );
+	}
+
+	return Support\output_object( $properties, array_keys( $properties ) );
+}
+
+/**
+ * The JSON type `cast_value()` produces for a settings-map type.
+ *
+ * @param string $type Type recorded in the settings map.
+ * @return string
+ */
+function schema_type( string $type ): string {
+	return match ( $type ) {
+		'integer' => 'integer',
+		'boolean' => 'boolean',
+		default => 'string',
+	};
 }
 
 /**

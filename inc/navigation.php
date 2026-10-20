@@ -72,6 +72,16 @@ function register(): void {
 					]
 				)
 			),
+			'output_schema'       => Support\list_schema(
+				Support\output_object(
+					[
+						'id'    => Support\prop( 'integer', __( 'wp_navigation post ID, which get-navigation and update-navigation take.', 'hm-abilities-mcp' ) ),
+						'title' => Support\prop( 'string', __( 'Menu title.', 'hm-abilities-mcp' ) ),
+						'slug'  => Support\prop( 'string', __( 'Menu slug.', 'hm-abilities-mcp' ) ),
+					],
+					[ 'id', 'title', 'slug' ]
+				)
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_menus',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta(
@@ -100,6 +110,14 @@ function register(): void {
 					]
 				),
 				[ 'id' ]
+			),
+			'output_schema'       => Support\output_object(
+				[
+					'id'    => Support\prop( 'integer', __( 'wp_navigation post ID.', 'hm-abilities-mcp' ) ),
+					'title' => Support\prop( 'string', __( 'Menu title.', 'hm-abilities-mcp' ) ),
+					'items' => Support\nav_items_schema( __( 'The menu entries, in order.', 'hm-abilities-mcp' ) ),
+				],
+				[ 'id', 'title', 'items' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\get_menu',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
@@ -159,6 +177,13 @@ function register(): void {
 					]
 				),
 				[ 'id', 'items' ]
+			),
+			'output_schema'       => Support\output_object(
+				[
+					'id'         => Support\prop( 'integer', __( 'wp_navigation post ID that was written.', 'hm-abilities-mcp' ) ),
+					'item_count' => Support\prop( 'integer', __( 'Top-level items written. Children nested under them are not counted.', 'hm-abilities-mcp' ) ),
+				],
+				[ 'id', 'item_count' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\update_menu',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
@@ -245,6 +270,16 @@ function list_menus( $input = null ) {
 }
 
 /**
+ * Whether a post is a navigation menu in one of the `ALLOWED_STATUSES`.
+ *
+ * @param WP_Post $post Post.
+ * @return bool
+ */
+function is_menu( WP_Post $post ): bool {
+	return $post->post_type === 'wp_navigation' && in_array( $post->post_status, ALLOWED_STATUSES, true );
+}
+
+/**
  * Get a navigation menu's items.
  *
  * A menu outside `ALLOWED_STATUSES` 404s, and the caller must hold `read_post`
@@ -263,14 +298,10 @@ function get_menu( $input = null ) {
 				return $id;
 			}
 
-			$post = get_post( $id );
+			$post = Support\resolve_post( $id, 'read_post', 'navigation menu', visible: __NAMESPACE__ . '\\is_menu' );
 
-			if ( ! $post instanceof WP_Post || $post->post_type !== 'wp_navigation' || ! in_array( $post->post_status, ALLOWED_STATUSES, true ) ) {
-				return Support\error( 'hm_abilities_not_found', __( 'No navigation menu found for that ID.', 'hm-abilities-mcp' ), 404 );
-			}
-
-			if ( ! current_user_can( 'read_post', $post->ID ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to read that navigation menu.', 'hm-abilities-mcp' ), 403 );
+			if ( is_wp_error( $post ) ) {
+				return $post;
 			}
 
 			return [
@@ -301,14 +332,10 @@ function update_menu( $input = null ) {
 				return $id;
 			}
 
-			$post = get_post( $id );
+			$post = Support\resolve_post( $id, 'edit_post', 'navigation menu', visible: __NAMESPACE__ . '\\is_menu' );
 
-			if ( ! $post instanceof WP_Post || $post->post_type !== 'wp_navigation' || ! in_array( $post->post_status, ALLOWED_STATUSES, true ) ) {
-				return Support\error( 'hm_abilities_not_found', __( 'No navigation menu found for that ID.', 'hm-abilities-mcp' ), 404 );
-			}
-
-			if ( ! current_user_can( 'edit_post', $post->ID ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to edit that navigation menu.', 'hm-abilities-mcp' ), 403 );
+			if ( is_wp_error( $post ) ) {
+				return $post;
 			}
 
 			if ( ! is_array( $input ) || ! isset( $input['items'] ) ) {
