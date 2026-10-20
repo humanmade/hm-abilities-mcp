@@ -113,6 +113,17 @@ OUT=$(call hm-abilities/list-content GET 'input%5Bpost_type%5D=post')
 echo "$OUT" | grep -q '"items"'
 check "list-content answers over REST" "$([ $? -eq 0 ] && echo 1 || echo 0)" "$(echo "$OUT" | head -c 200)"
 
+echo ""
+echo "== a base64 upload imports over REST =="
+
+# WP-CLI loads the wp-admin includes the import needs, so only a real request
+# shows whether the ability loads them itself.
+PNG=$(wpcli wp eval '$i = imagecreatetruecolor( 3, 3 ); ob_start(); imagepng( $i ); echo base64_encode( ob_get_clean() );' | tail -1)
+OUT=$(curl -s -u "$AUTH" -X POST -H 'Content-Type: application/json' \
+	-d "{\"input\":{\"data\":\"$PNG\"}}" "$ROUTE/hm-abilities/upload-media/run")
+echo "$OUT" | grep -q '"already_existed":false'
+check "upload-media imports base64 data over REST" "$([ $? -eq 0 ] && echo 1 || echo 0)" "$(echo "$OUT" | head -c 200)"
+
 TOTAL=$((PASSES + FAILURES))
 echo ""
 echo "----"

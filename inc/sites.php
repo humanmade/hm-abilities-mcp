@@ -76,6 +76,28 @@ function register(): void {
 					],
 				]
 			),
+			'output_schema'       => Support\output_object(
+				[
+					'items'      => Support\output_list(
+						Support\site_summary_schema(),
+						__( 'The live subsites on this page.', 'hm-abilities-mcp' )
+					),
+					'count'      => Support\prop( 'integer', __( 'How many sites are on this page.', 'hm-abilities-mcp' ) ),
+					'pagination' => Support\output_object(
+						[
+							'total'       => Support\prop( 'integer', __( 'Live sites matching across every page.', 'hm-abilities-mcp' ) ),
+							'page'        => Support\prop( 'integer', __( 'The page these sites came from, counting from 1.', 'hm-abilities-mcp' ) ),
+							'per_page'    => Support\prop( 'integer', __( 'Sites requested per page.', 'hm-abilities-mcp' ) ),
+							'total_pages' => Support\prop( 'integer', __( 'Pages the full result set spans.', 'hm-abilities-mcp' ) ),
+							'has_more'    => Support\prop( 'boolean', __( 'True when a further page exists.', 'hm-abilities-mcp' ) ),
+							'next_page'   => Support\prop( [ 'integer', 'null' ], __( 'The page to request next, or null on the last page.', 'hm-abilities-mcp' ) ),
+						],
+						[ 'total', 'page', 'per_page', 'total_pages', 'has_more', 'next_page' ],
+						__( 'How to walk the rest of the network.', 'hm-abilities-mcp' )
+					),
+				],
+				[ 'items', 'count', 'pagination' ]
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_network_sites',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
 			'meta'                => [
