@@ -11,6 +11,7 @@ namespace HM\Abilities\Content;
 
 use HM\Abilities\Support;
 use WP_Post;
+use WP_Query;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -48,35 +49,60 @@ function register(): void {
 		'hm-abilities/list-content',
 		[
 			'label'               => __( 'List content', 'hm-abilities-mcp' ),
-			'description'         => __( 'List pages, posts, and custom post types with optional filters.', 'hm-abilities-mcp' ),
+			'description'         => __( 'List pages, posts, and custom post types, filtered by type, status, search, author, or taxonomy terms. Returns the total match count alongside the current page.', 'hm-abilities-mcp' ),
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
-					[
-						'post_type' => [
-							'type'    => 'string',
-							'enum'    => Support\post_types(),
-							'default' => 'page',
-						],
-						'status'    => [
-							'type'    => 'string',
-							'enum'    => Support\list_statuses(),
-							'default' => 'any',
-						],
-						'search'    => [ 'type' => 'string' ],
-						'per_page'  => [
-							'type'    => 'integer',
-							'default' => 20,
-							'minimum' => 1,
-							'maximum' => Support\MAX_PER_PAGE,
-						],
-						'page'      => [
-							'type'    => 'integer',
-							'default' => 1,
-						],
-					]
+					Support\with_fields(
+						[
+							'post_type'   => [
+								'type'        => [ 'string', 'array' ],
+								'items'       => [
+									'type' => 'string',
+									'enum' => Support\post_types(),
+								],
+								'default'     => 'page',
+								'description' => __( 'One post type, or an array of them to search several in a single call.', 'hm-abilities-mcp' ),
+							],
+							'status'      => [
+								'type'    => 'string',
+								'enum'    => Support\list_statuses(),
+								'default' => 'any',
+							],
+							'search'      => [ 'type' => 'string' ],
+							'author'      => [
+								'type'        => [ 'integer', 'string' ],
+								'description' => __( 'Limit to one author, given as a user ID or as a user slug, login, or email. Email requires the list_users capability. Use list-users to turn a name like "Jane Smith" into a slug, or read author.slug off any returned item.', 'hm-abilities-mcp' ),
+							],
+							'terms'       => [
+								'type'                 => 'object',
+								'additionalProperties' => [
+									'type'  => [ 'string', 'integer', 'array' ],
+									'items' => [ 'type' => [ 'string', 'integer' ] ],
+								],
+								'description'          => __( 'Limit to items carrying these terms, as a map of taxonomy slug to one term value or a list of them. Values in one taxonomy match any of them; separate taxonomies must all match. Use list-terms to discover taxonomies and their terms.', 'hm-abilities-mcp' ),
+							],
+							'terms_field' => [
+								'type'        => 'string',
+								'enum'        => [ 'slug', 'name', 'id' ],
+								'default'     => 'slug',
+								'description' => __( 'Which term value the terms map holds.', 'hm-abilities-mcp' ),
+							],
+							'per_page'    => [
+								'type'    => 'integer',
+								'default' => 20,
+								'minimum' => 1,
+								'maximum' => Support\MAX_PER_PAGE,
+							],
+							'page'        => [
+								'type'    => 'integer',
+								'default' => 1,
+							],
+						]
+					)
 				)
 			),
+			'output_schema'       => Support\list_schema( Support\post_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -91,33 +117,40 @@ function register(): void {
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
-					[
-						'post_type' => [
-							'type'    => 'string',
-							'enum'    => Support\post_types(),
-							'default' => 'post',
-						],
-						'after'     => [
-							'type'        => 'string',
-							'description' => __( 'Start of the published-date window (any strtotime format, e.g. "2026-07-01" or "-7 days"). Defaults to the start of today in the site timezone.', 'hm-abilities-mcp' ),
-						],
-						'before'    => [
-							'type'        => 'string',
-							'description' => __( 'End of the published-date window. Defaults to the end of today in the site timezone.', 'hm-abilities-mcp' ),
-						],
-						'per_page'  => [
-							'type'    => 'integer',
-							'default' => 20,
-							'minimum' => 1,
-							'maximum' => Support\MAX_PER_PAGE,
-						],
-						'page'      => [
-							'type'    => 'integer',
-							'default' => 1,
-						],
-					]
+					Support\with_fields(
+						[
+							'post_type' => [
+								'type'        => [ 'string', 'array' ],
+								'items'       => [
+									'type' => 'string',
+									'enum' => Support\post_types(),
+								],
+								'default'     => 'post',
+								'description' => __( 'One post type, or an array of them to cover several in a single call.', 'hm-abilities-mcp' ),
+							],
+							'after'     => [
+								'type'        => 'string',
+								'description' => __( 'Start of the published-date window (any strtotime format, e.g. "2026-07-01" or "-7 days"). Defaults to the start of today in the site timezone.', 'hm-abilities-mcp' ),
+							],
+							'before'    => [
+								'type'        => 'string',
+								'description' => __( 'End of the published-date window. Defaults to the end of today in the site timezone.', 'hm-abilities-mcp' ),
+							],
+							'per_page'  => [
+								'type'    => 'integer',
+								'default' => 20,
+								'minimum' => 1,
+								'maximum' => Support\MAX_PER_PAGE,
+							],
+							'page'      => [
+								'type'    => 'integer',
+								'default' => 1,
+							],
+						]
+					)
 				)
 			),
+			'output_schema'       => Support\list_schema( Support\post_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_recent_articles',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -132,15 +165,18 @@ function register(): void {
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema(
 				Support\with_site_id(
-					[
-						'id' => [
-							'type'        => 'integer',
-							'description' => __( 'Post ID.', 'hm-abilities-mcp' ),
-						],
-					]
+					Support\with_fields(
+						[
+							'id' => [
+								'type'        => 'integer',
+								'description' => __( 'Post ID.', 'hm-abilities-mcp' ),
+							],
+						]
+					)
 				),
 				[ 'id' ]
 			),
+			'output_schema'       => Support\post_schema( true ),
 			'execute_callback'    => __NAMESPACE__ . '\\get_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -175,6 +211,7 @@ function register(): void {
 				),
 				[ 'post_type', 'title' ]
 			),
+			'output_schema'       => Support\post_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\create_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
 			'meta'                => meta(
@@ -211,6 +248,7 @@ function register(): void {
 				),
 				[ 'id' ]
 			),
+			'output_schema'       => Support\post_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\update_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
 			'meta'                => meta( $write ),
@@ -261,14 +299,30 @@ function can_write( $input = null ) {
 function list_content( $input = null ) {
 	return Support\on_site(
 		$input,
-		static function () use ( $input ): array {
+		static function () use ( $input ) {
 			$input = is_array( $input ) ? $input : [];
 
-			$type = ( isset( $input['post_type'] ) && in_array( $input['post_type'], Support\post_types(), true ) ) ? $input['post_type'] : 'page';
+			$types = resolve_post_types( $input, 'page' );
 
-			$query = array_merge(
+			if ( is_wp_error( $types ) ) {
+				return $types;
+			}
+
+			$author = resolve_author( $input );
+
+			if ( is_wp_error( $author ) ) {
+				return $author;
+			}
+
+			$tax_query = resolve_tax_query( $input );
+
+			if ( is_wp_error( $tax_query ) ) {
+				return $tax_query;
+			}
+
+			$args = array_merge(
 				[
-					'post_type'      => $type,
+					'post_type'      => $types,
 					'posts_per_page' => isset( $input['per_page'] ) ? min( Support\MAX_PER_PAGE, max( 1, (int) $input['per_page'] ) ) : 20,
 					'paged'          => isset( $input['page'] ) ? max( 1, (int) $input['page'] ) : 1,
 				],
@@ -276,20 +330,205 @@ function list_content( $input = null ) {
 			);
 
 			if ( ! empty( $input['search'] ) ) {
-				$query['s'] = (string) $input['search'];
+				$args['s'] = (string) $input['search'];
 			}
 
-			$items = array_map(
-				static fn ( WP_Post $post ): array => Support\format_post( $post ),
-				get_posts( $query )
-			);
+			if ( $author > 0 ) {
+				$args['author'] = $author;
+			}
 
-			return [
-				'items' => $items,
-				'count' => count( $items ),
-			];
+			if ( $tax_query ) {
+				$args['tax_query'] = $tax_query;
+			}
+
+			return run_post_query( $args, Support\requested_fields( $input ) );
 		}
 	);
+}
+
+/**
+ * Run a bounded post query and shape it into the standard list envelope.
+ *
+ * `$args` overrides the defaults below. `perm` defaults to `readable`, which
+ * scopes private posts to the caller; left unset, `WP_Query` never reaches its
+ * `read_private_posts` check.
+ *
+ * @param array<string, mixed> $args   Query arguments.
+ * @param string[]             $fields Extra fields for `Support\format_post()`.
+ * @return array<string, mixed>
+ */
+function run_post_query( array $args, array $fields ): array {
+	$query = new WP_Query(
+		array_merge(
+			[
+				'suppress_filters' => true,
+				'perm'             => 'readable',
+			],
+			$args
+		)
+	);
+
+	update_post_author_caches( $query->posts );
+
+	$items = array_map(
+		static fn ( WP_Post $post ): array => Support\format_post( $post, false, $fields ),
+		$query->posts
+	);
+
+	return Support\list_response( $query, $items );
+}
+
+/**
+ * Whether a post's type is one the content abilities expose.
+ *
+ * @param WP_Post $post Post.
+ * @return bool
+ */
+function is_exposed( WP_Post $post ): bool {
+	return in_array( $post->post_type, Support\post_types(), true );
+}
+
+/**
+ * Resolve the `post_type` input into a list of exposed post types.
+ *
+ * Accepts a single slug or an array of them. An unexposed slug is an error
+ * rather than a silent fallback.
+ *
+ * @param array<string, mixed> $input    Ability input.
+ * @param string               $fallback Post type used when none is given.
+ * @return string[]|\WP_Error
+ */
+function resolve_post_types( array $input, string $fallback ) {
+	if ( ! isset( $input['post_type'] ) ) {
+		return [ $fallback ];
+	}
+
+	$requested = is_array( $input['post_type'] ) ? $input['post_type'] : [ $input['post_type'] ];
+	$requested = array_values( array_unique( array_filter( array_map( 'strval', $requested ) ) ) );
+
+	if ( $requested === [] ) {
+		return [ $fallback ];
+	}
+
+	$allowed = Support\post_types();
+	$unknown = array_values( array_diff( $requested, $allowed ) );
+
+	if ( $unknown ) {
+		return Support\error(
+			'hm_abilities_invalid_post_type',
+			sprintf(
+				/* translators: 1: comma-separated unsupported post types, 2: comma-separated available post types. */
+				__( 'Unsupported post_type: %1$s. Available post types: %2$s.', 'hm-abilities-mcp' ),
+				implode( ', ', $unknown ),
+				implode( ', ', $allowed )
+			),
+			400
+		);
+	}
+
+	return $requested;
+}
+
+/**
+ * Resolve the `author` input into a user ID.
+ *
+ * Accepts a user ID, slug or login, and an email only from a caller holding
+ * `list_users`, so the filter cannot probe for addresses. A value matching no
+ * user is an error rather than an empty result.
+ *
+ * @param array<string, mixed> $input Ability input.
+ * @return int|\WP_Error User ID, or 0 when no author was given.
+ */
+function resolve_author( array $input ) {
+	if ( ! isset( $input['author'] ) ) {
+		return 0;
+	}
+
+	$author = is_string( $input['author'] ) ? trim( $input['author'] ) : $input['author'];
+
+	if ( $author === '' ) {
+		return 0;
+	}
+
+	$user = false;
+
+	if ( is_int( $author ) || ( is_string( $author ) && ctype_digit( $author ) ) ) {
+		$user = get_userdata( (int) $author );
+	} else {
+		$fields = current_user_can( 'list_users' ) ? [ 'slug', 'login', 'email' ] : [ 'slug', 'login' ];
+
+		foreach ( $fields as $field ) {
+			$user = get_user_by( $field, (string) $author );
+
+			if ( $user ) {
+				break;
+			}
+		}
+	}
+
+	if ( ! $user ) {
+		return Support\error(
+			'hm_abilities_author_not_found',
+			__( 'No user matches that author. Pass a user ID, or the slug, login, or email of an existing user. The author.slug on any listed item is accepted.', 'hm-abilities-mcp' ),
+			404
+		);
+	}
+
+	return (int) $user->ID;
+}
+
+/**
+ * Build the `tax_query` for the `terms` input.
+ *
+ * Terms within one taxonomy are OR-ed, separate taxonomies AND-ed. A taxonomy
+ * outside `Support\taxonomies()` is an error rather than an ignored clause.
+ *
+ * @param array<string, mixed> $input Ability input.
+ * @return array<int|string, mixed>|\WP_Error Empty when no terms were given.
+ */
+function resolve_tax_query( array $input ) {
+	$terms = ( isset( $input['terms'] ) && is_array( $input['terms'] ) ) ? $input['terms'] : [];
+
+	if ( $terms === [] ) {
+		return [];
+	}
+
+	$allowed = Support\taxonomies();
+	$field   = ( isset( $input['terms_field'] ) && in_array( $input['terms_field'], [ 'slug', 'name', 'id' ], true ) ) ? (string) $input['terms_field'] : 'slug';
+
+	$tax_query = [ 'relation' => 'AND' ];
+
+	foreach ( $terms as $taxonomy => $values ) {
+		$taxonomy = (string) $taxonomy;
+
+		if ( ! in_array( $taxonomy, $allowed, true ) ) {
+			return Support\error(
+				'hm_abilities_invalid_taxonomy',
+				sprintf(
+					/* translators: 1: requested taxonomy slug, 2: comma-separated available taxonomy slugs. */
+					__( 'Unavailable taxonomy: %1$s. Available taxonomies: %2$s.', 'hm-abilities-mcp' ),
+					$taxonomy,
+					$allowed ? implode( ', ', $allowed ) : __( 'none', 'hm-abilities-mcp' )
+				),
+				400
+			);
+		}
+
+		$values = array_values( array_filter( array_map( 'strval', is_array( $values ) ? $values : [ $values ] ), 'strlen' ) );
+
+		if ( $values === [] ) {
+			continue;
+		}
+
+		$tax_query[] = [
+			'taxonomy' => $taxonomy,
+			'field'    => $field === 'id' ? 'term_id' : $field,
+			'terms'    => $field === 'id' ? array_map( 'intval', $values ) : $values,
+			'operator' => 'IN',
+		];
+	}
+
+	return count( $tax_query ) > 1 ? $tax_query : [];
 }
 
 /**
@@ -304,13 +543,17 @@ function list_content( $input = null ) {
 function list_recent_articles( $input = null ) {
 	return Support\on_site(
 		$input,
-		static function () use ( $input ): array {
+		static function () use ( $input ) {
 			$input = is_array( $input ) ? $input : [];
 
-			$type = ( isset( $input['post_type'] ) && in_array( $input['post_type'], Support\post_types(), true ) ) ? $input['post_type'] : 'post';
+			$types = resolve_post_types( $input, 'post' );
 
-			$query = [
-				'post_type'      => $type,
+			if ( is_wp_error( $types ) ) {
+				return $types;
+			}
+
+			$args = [
+				'post_type'      => $types,
 				'post_status'    => 'publish',
 				'posts_per_page' => isset( $input['per_page'] ) ? min( Support\MAX_PER_PAGE, max( 1, (int) $input['per_page'] ) ) : 20,
 				'paged'          => isset( $input['page'] ) ? max( 1, (int) $input['page'] ) : 1,
@@ -319,15 +562,7 @@ function list_recent_articles( $input = null ) {
 				'date_query'     => date_range_query( $input ),
 			];
 
-			$items = array_map(
-				static fn ( WP_Post $post ): array => article_summary( $post ),
-				get_posts( $query )
-			);
-
-			return [
-				'items' => $items,
-				'count' => count( $items ),
-			];
+			return run_post_query( $args, Support\requested_fields( $input ) );
 		}
 	);
 }
@@ -372,19 +607,6 @@ function date_range_query( array $input ): array {
 }
 
 /**
- * Shape an article for the recent-articles list, adding the published date.
- *
- * @param WP_Post $post Post object.
- * @return array<string, mixed>
- */
-function article_summary( WP_Post $post ): array {
-	$data         = Support\format_post( $post );
-	$data['date'] = (string) get_post_time( 'c', false, $post );
-
-	return $data;
-}
-
-/**
  * Get one content item with block markup.
  *
  * @param mixed $input Ability input.
@@ -400,21 +622,13 @@ function get_content( $input = null ) {
 				return $id;
 			}
 
-			$post = get_post( $id );
+			$post = Support\resolve_post( $id, 'read_post', 'post', in_scope: __NAMESPACE__ . '\\is_exposed' );
 
-			if ( ! $post instanceof WP_Post ) {
-				return Support\error( 'hm_abilities_not_found', __( 'No post found for that ID.', 'hm-abilities-mcp' ), 404 );
+			if ( is_wp_error( $post ) ) {
+				return $post;
 			}
 
-			if ( ! in_array( $post->post_type, Support\post_types(), true ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'That post type is not available through this ability.', 'hm-abilities-mcp' ), 403 );
-			}
-
-			if ( ! current_user_can( 'read_post', $post->ID ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to read that post.', 'hm-abilities-mcp' ), 403 );
-			}
-
-			return Support\format_post( $post, true );
+			return Support\format_post( $post, true, Support\requested_fields( is_array( $input ) ? $input : [] ) );
 		}
 	);
 }
@@ -503,18 +717,10 @@ function update_content( $input = null ) {
 				return $id;
 			}
 
-			$post = get_post( $id );
+			$post = Support\resolve_post( $id, 'edit_post', 'post', in_scope: __NAMESPACE__ . '\\is_exposed' );
 
-			if ( ! $post instanceof WP_Post ) {
-				return Support\error( 'hm_abilities_not_found', __( 'No post found for that ID.', 'hm-abilities-mcp' ), 404 );
-			}
-
-			if ( ! in_array( $post->post_type, Support\post_types(), true ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'That post type is not available through this ability.', 'hm-abilities-mcp' ), 403 );
-			}
-
-			if ( ! current_user_can( 'edit_post', $post->ID ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to edit that post.', 'hm-abilities-mcp' ), 403 );
+			if ( is_wp_error( $post ) ) {
+				return $post;
 			}
 
 			$update = [ 'ID' => $id ];

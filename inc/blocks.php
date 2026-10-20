@@ -63,6 +63,19 @@ function register(): void {
 				],
 				[ 'content' ]
 			),
+			'output_schema'       => Support\output_object(
+				[
+					'valid'       => Support\prop( 'boolean', __( 'True when every block type found is registered.', 'hm-abilities-mcp' ) ),
+					'block_count' => Support\prop( 'integer', __( 'Blocks walked, counting nested ones and excluding freeform chunks between blocks.', 'hm-abilities-mcp' ) ),
+					'invalid'     => Support\output_list(
+						[ 'type' => 'string' ],
+						__( 'Names of the block types that are not registered, each listed once.', 'hm-abilities-mcp' )
+					),
+					/* translators: %d: deepest nesting level walked. */
+					'truncated'   => Support\prop( 'boolean', sprintf( __( 'True when nesting ran past %d levels, leaving the deeper blocks unchecked.', 'hm-abilities-mcp' ), MAX_DEPTH ) ),
+				],
+				[ 'valid', 'block_count', 'invalid', 'truncated' ]
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\validate_blocks',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta( $read ),
@@ -82,6 +95,23 @@ function register(): void {
 						'description' => __( 'Block namespace prefix filter.', 'hm-abilities-mcp' ),
 					],
 				]
+			),
+			'output_schema'       => Support\output_object(
+				[
+					'block_types' => Support\output_list(
+						Support\output_object(
+							[
+								'name'     => Support\prop( 'string', __( 'Block type name, for instance core/paragraph.', 'hm-abilities-mcp' ) ),
+								'title'    => Support\prop( 'string', __( 'Human-readable block title.', 'hm-abilities-mcp' ) ),
+								'category' => Support\prop( 'string', __( 'Editor category the block sits in. Empty when the block declares none.', 'hm-abilities-mcp' ) ),
+							],
+							[ 'name', 'title', 'category' ]
+						),
+						__( 'The matching block types, in registry order.', 'hm-abilities-mcp' )
+					),
+					'count'       => Support\prop( 'integer', __( 'How many block types are listed. Every match is returned, so this is not a page.', 'hm-abilities-mcp' ) ),
+				],
+				[ 'block_types', 'count' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_block_types',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
