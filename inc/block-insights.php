@@ -111,6 +111,31 @@ function register(): void {
 					STATS_SITES_MAX
 				)
 			),
+			'output_schema'       => Support\output_object(
+				[
+					'scope'                => Support\prop(
+						'string',
+						__( 'The scope the tally covered.', 'hm-abilities-mcp' ),
+						[ 'enum' => [ 'site', 'network' ] ]
+					),
+					'status'               => Support\prop( 'string', __( 'Post status the scan was filtered to.', 'hm-abilities-mcp' ) ),
+					'post_types'           => Support\output_list(
+						[ 'type' => 'string' ],
+						__( 'Post types the scan covered.', 'hm-abilities-mcp' )
+					),
+					'post_count'           => Support\prop( 'integer', __( 'Posts scanned across every site in this response.', 'hm-abilities-mcp' ) ),
+					'block_count'          => Support\prop( 'integer', __( 'Block instances counted across every site in this response.', 'hm-abilities-mcp' ) ),
+					'distinct_block_types' => Support\prop( 'integer', __( 'How many different block types were seen.', 'hm-abilities-mcp' ) ),
+					'blocks'               => Support\block_tally_schema(),
+					'sites'                => Support\output_list(
+						site_tally_row_schema(),
+						__( 'Per-site breakdown. Returned only at network scope.', 'hm-abilities-mcp' )
+					),
+					'pagination'           => Support\site_batch_schema(),
+					'note'                 => partial_note_schema(),
+				],
+				[ 'scope', 'status', 'post_types', 'post_count', 'block_count', 'distinct_block_types', 'blocks' ]
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\block_usage_stats',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
 			'meta'                => meta( $read ),
@@ -146,6 +171,39 @@ function register(): void {
 					],
 				]
 			),
+			'output_schema'       => Support\output_object(
+				[
+					'site'                 => Support\site_summary_schema(),
+					'post'                 => Support\output_object(
+						[
+							'id'     => Support\prop( 'integer', __( 'Post ID.', 'hm-abilities-mcp' ) ),
+							'title'  => Support\prop( 'string', __( 'Rendered post title.', 'hm-abilities-mcp' ) ),
+							'status' => Support\prop( 'string', __( 'Post status.', 'hm-abilities-mcp' ) ),
+							'type'   => Support\prop( 'string', __( 'Post type slug.', 'hm-abilities-mcp' ) ),
+							'link'   => Support\prop( 'string', __( 'Permalink to the post.', 'hm-abilities-mcp' ), [ 'format' => 'uri' ] ),
+						],
+						[ 'id', 'title', 'status', 'type', 'link' ],
+						__( 'The page the blocks were read from.', 'hm-abilities-mcp' )
+					),
+					'block_count'          => Support\prop( 'integer', __( 'Block instances on the page, counting nested ones.', 'hm-abilities-mcp' ) ),
+					'distinct_block_types' => Support\prop( 'integer', __( 'How many different block types the page uses.', 'hm-abilities-mcp' ) ),
+					'blocks'               => Support\block_tally_schema(),
+					'outline'              => Support\output_list(
+						Support\output_object(
+							[
+								'name'  => Support\prop( 'string', __( 'Block type name.', 'hm-abilities-mcp' ) ),
+								'inner' => Support\output_list(
+									[ 'type' => 'object' ],
+									__( 'Nested blocks, each the same shape as this node. Present only where the block has inner blocks.', 'hm-abilities-mcp' )
+								),
+							],
+							[ 'name' ]
+						),
+						__( 'The block hierarchy in document order. Returned unless include_outline was false.', 'hm-abilities-mcp' )
+					),
+				],
+				[ 'site', 'post', 'block_count', 'distinct_block_types', 'blocks' ]
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\get_page_blocks',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
 			'meta'                => meta( $read ),
@@ -174,6 +232,26 @@ function register(): void {
 					MISSING_SITES_MAX
 				),
 				[ 'block_name' ]
+			),
+			'output_schema'       => Support\output_object(
+				[
+					'block_name'    => Support\prop( 'string', __( 'The block type that was looked for.', 'hm-abilities-mcp' ) ),
+					'target'        => Support\prop( 'string', __( 'The page path checked on each subsite, or "front-page" when none was given.', 'hm-abilities-mcp' ) ),
+					'checked_count' => Support\prop( 'integer', __( 'Subsites covered by this response.', 'hm-abilities-mcp' ) ),
+					'present_count' => Support\prop( 'integer', __( 'Subsites whose target page carries the block.', 'hm-abilities-mcp' ) ),
+					'missing_count' => Support\prop( 'integer', __( 'Subsites whose target page does not carry the block.', 'hm-abilities-mcp' ) ),
+					'present'       => Support\output_list(
+						site_row_schema(),
+						__( 'The subsites carrying the block.', 'hm-abilities-mcp' )
+					),
+					'missing'       => Support\output_list(
+						site_row_schema(),
+						__( 'The subsites not carrying it, including those with no target page.', 'hm-abilities-mcp' )
+					),
+					'pagination'    => Support\site_batch_schema(),
+					'note'          => partial_note_schema(),
+				],
+				[ 'block_name', 'target', 'checked_count', 'present_count', 'missing_count', 'present', 'missing', 'pagination' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\find_missing_block',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
@@ -289,21 +367,25 @@ function block_usage_stats( $input = null ) {
 /**
  * Scan the current blog's content and tally block usage.
  *
+ * Unpublished statuses are scoped to what the caller may read.
+ *
  * @param string[] $post_types Post types to scan.
  * @param string   $status     Post status filter ("any" or a concrete status).
  * @return array{tally: array<string,int>, post_count: int, truncated: bool, summary: array<string,mixed>}
  */
 function scan_site( array $post_types, string $status ): array {
 	$posts = get_posts(
-		[
-			'post_type'        => $post_types,
-			'post_status'      => $status,
-			'posts_per_page'   => SCAN_LIMIT + 1,
-			'orderby'          => 'ID',
-			'order'            => 'ASC',
-			'suppress_filters' => false,
-			'no_found_rows'    => true,
-		]
+		array_merge(
+			[
+				'post_type'        => $post_types,
+				'posts_per_page'   => SCAN_LIMIT + 1,
+				'orderby'          => 'ID',
+				'order'            => 'ASC',
+				'suppress_filters' => false,
+				'no_found_rows'    => true,
+			],
+			Support\status_query_args( $status )
+		)
 	);
 
 	$truncated = count( $posts ) > SCAN_LIMIT;
@@ -402,10 +484,10 @@ function get_page_blocks( $input = null ) {
  * @return array<string, mixed>|\WP_Error
  */
 function format_page_blocks( int $post_id, bool $include_outline ) {
-	$post = get_post( $post_id );
+	$post = Support\resolve_post( $post_id, 'read_post', 'page' );
 
-	if ( ! $post instanceof WP_Post ) {
-		return Support\error( 'hm_abilities_not_found', __( 'No page found for that ID on the target site.', 'hm-abilities-mcp' ), 404 );
+	if ( is_wp_error( $post ) ) {
+		return $post;
 	}
 
 	$tally = Support\tally_blocks( $post->post_content );
@@ -463,8 +545,10 @@ function find_missing_block( $input = null ) {
 				$summary = Support\current_site_summary();
 
 				if ( $path !== '' ) {
+					// `get_page_by_path()` carries no status clause, so a page
+					// the caller may not read is treated as absent.
 					$page    = get_page_by_path( $path, OBJECT, Support\post_types() );
-					$post_id = $page instanceof WP_Post ? $page->ID : 0;
+					$post_id = ( $page instanceof WP_Post && ! is_wp_error( Support\resolve_post( $page->ID, 'read_post', 'page' ) ) ) ? $page->ID : 0;
 				} else {
 					$post_id = Support\static_front_page_id();
 				}
@@ -514,6 +598,59 @@ function find_missing_block( $input = null ) {
 	}
 
 	return $result;
+}
+
+/**
+ * Output schema for one subsite row in the find-missing-block result.
+ *
+ * Extends the site summary with what was found on that site's target page.
+ * `note` appears only where no target page resolved, which also reports
+ * `page_id` as null.
+ *
+ * @return array<string, mixed>
+ */
+function site_row_schema(): array {
+	return Support\extend_object(
+		Support\site_summary_schema(),
+		[
+			'page_id' => Support\prop( [ 'integer', 'null' ], __( 'ID of the page checked, or null when none resolved.', 'hm-abilities-mcp' ) ),
+			'present' => Support\prop( 'boolean', __( 'True when the block appears on that page.', 'hm-abilities-mcp' ) ),
+			'count'   => Support\prop( 'integer', __( 'How many times the block appears on that page.', 'hm-abilities-mcp' ) ),
+			'note'    => Support\prop( 'string', __( 'Why no page was checked. Returned only when page_id is null.', 'hm-abilities-mcp' ) ),
+		],
+		[ 'page_id', 'present', 'count' ]
+	);
+}
+
+/**
+ * Output schema for one subsite row in the block-usage-stats result.
+ *
+ * Extends the site summary with what the scan counted on that site.
+ *
+ * @return array<string, mixed>
+ */
+function site_tally_row_schema(): array {
+	return Support\extend_object(
+		Support\site_summary_schema(),
+		[
+			'post_count'  => Support\prop( 'integer', __( 'Posts scanned on this site.', 'hm-abilities-mcp' ) ),
+			'block_count' => Support\prop( 'integer', __( 'Block instances counted on this site.', 'hm-abilities-mcp' ) ),
+			/* translators: %d: largest number of posts scanned per site. */
+			'truncated'   => Support\prop( 'boolean', sprintf( __( 'True when the site holds more than %d matching posts, so the counts below cover only that many.', 'hm-abilities-mcp' ), SCAN_LIMIT ) ),
+			'blocks'      => Support\block_tally_schema(),
+		],
+		[ 'post_count', 'block_count', 'truncated', 'blocks' ]
+	);
+}
+
+/**
+ * Output schema for the `note` a partial response carries, describing
+ * `partial_note()`.
+ *
+ * @return array<string, mixed>
+ */
+function partial_note_schema(): array {
+	return Support\prop( 'string', __( 'Warning that the counts cover one page of the network. Returned only when sites remain.', 'hm-abilities-mcp' ) );
 }
 
 /**

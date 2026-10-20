@@ -4,6 +4,7 @@
 
 	<!-- What to scan -->
 	<file>./inc/</file>
+    <file>./tests/</file>
     <file>hm-abilities-mcp.php</file>
 
     <exclude-pattern>./vendor/</exclude-pattern>
@@ -42,5 +43,24 @@
 
     <rule ref="HM.Files.NamespaceDirectoryName.NoIncDirectory">
         <exclude-pattern>hm-abilities-mcp.php</exclude-pattern>
+    </rule>
+
+    <!--
+    The test scripts are WP-CLI programs, not part of the plugin runtime. They
+    print to stdout rather than to a page, and their helpers are global on
+    purpose: `wp eval-file` evaluates each test inside a function scope, so a
+    namespaced helper would not be reachable from the file under test.
+    -->
+    <rule ref="HM.Security.EscapeOutput">
+        <exclude-pattern>./tests/*</exclude-pattern>
+    </rule>
+    <rule ref="HM.Functions.NamespacedFunctions">
+        <exclude-pattern>./tests/*</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.PHP.DevelopmentFunctions">
+        <exclude-pattern>./tests/*</exclude-pattern>
+    </rule>
+    <rule ref="HM.PHP.Isset">
+        <exclude-pattern>./tests/*</exclude-pattern>
     </rule>
 </ruleset>

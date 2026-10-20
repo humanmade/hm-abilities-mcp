@@ -20,6 +20,8 @@ function bootstrap(): void {
 	Category\bootstrap();
 	Whoami\bootstrap();
 	Content\bootstrap();
+	Terms\bootstrap();
+	Users\bootstrap();
 	Media\bootstrap();
 	Navigation\bootstrap();
 	Settings\bootstrap();
