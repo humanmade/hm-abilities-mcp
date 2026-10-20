@@ -11,6 +11,7 @@ namespace HM\Abilities\Navigation;
 
 use HM\Abilities\Support;
 use WP_Post;
+use WP_Query;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -21,6 +22,14 @@ defined( 'ABSPATH' ) || exit;
  * @var string[]
  */
 const ALLOWED_STATUSES = [ 'publish', 'draft' ];
+
+/**
+ * Most items `update-navigation` accepts at the top level, and in each
+ * top-level item's `children`.
+ *
+ * @var int
+ */
+const MAX_ITEMS = 200;
 
 /**
  * Wire up the module's hooks.
@@ -47,7 +56,32 @@ function register(): void {
 			'label'               => __( 'List navigation menus', 'hm-abilities-mcp' ),
 			'description'         => __( 'List all navigation menus (wp_navigation posts).', 'hm-abilities-mcp' ),
 			'category'            => Support\CATEGORY,
-			'input_schema'        => Support\object_schema( Support\with_site_id( [] ) ),
+			'input_schema'        => Support\object_schema(
+				Support\with_site_id(
+					[
+						'per_page' => [
+							'type'    => 'integer',
+							'default' => 20,
+							'minimum' => 1,
+							'maximum' => Support\MAX_PER_PAGE,
+						],
+						'page'     => [
+							'type'    => 'integer',
+							'default' => 1,
+						],
+					]
+				)
+			),
+			'output_schema'       => Support\list_schema(
+				Support\output_object(
+					[
+						'id'    => Support\prop( 'integer', __( 'wp_navigation post ID, which get-navigation and update-navigation take.', 'hm-abilities-mcp' ) ),
+						'title' => Support\prop( 'string', __( 'Menu title.', 'hm-abilities-mcp' ) ),
+						'slug'  => Support\prop( 'string', __( 'Menu slug.', 'hm-abilities-mcp' ) ),
+					],
+					[ 'id', 'title', 'slug' ]
+				)
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_menus',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta(
@@ -77,6 +111,14 @@ function register(): void {
 				),
 				[ 'id' ]
 			),
+			'output_schema'       => Support\output_object(
+				[
+					'id'    => Support\prop( 'integer', __( 'wp_navigation post ID.', 'hm-abilities-mcp' ) ),
+					'title' => Support\prop( 'string', __( 'Menu title.', 'hm-abilities-mcp' ) ),
+					'items' => Support\nav_items_schema( __( 'The menu entries, in order.', 'hm-abilities-mcp' ) ),
+				],
+				[ 'id', 'title', 'items' ]
+			),
 			'execute_callback'    => __NAMESPACE__ . '\\get_menu',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta(
@@ -100,8 +142,9 @@ function register(): void {
 					[
 						'id'    => [ 'type' => 'integer' ],
 						'items' => [
-							'type'  => 'array',
-							'items' => [
+							'type'     => 'array',
+							'maxItems' => MAX_ITEMS,
+							'items'    => [
 								'type'       => 'object',
 								'properties' => [
 									'label'    => [ 'type' => 'string' ],
@@ -110,7 +153,23 @@ function register(): void {
 										'type'    => 'string',
 										'default' => 'custom',
 									],
-									'children' => [ 'type' => 'array' ],
+									'children' => [
+										'type'     => 'array',
+										'maxItems' => MAX_ITEMS,
+										'items'    => [
+											'type'       => 'object',
+											'properties' => [
+												'label'    => [ 'type' => 'string' ],
+												'url'      => [ 'type' => 'string' ],
+												'kind'     => [
+													'type'    => 'string',
+													'default' => 'custom',
+												],
+												'children' => [ 'type' => 'array' ],
+											],
+											'required'   => [ 'label' ],
+										],
+									],
 								],
 								'required'   => [ 'label' ],
 							],
@@ -118,6 +177,13 @@ function register(): void {
 					]
 				),
 				[ 'id', 'items' ]
+			),
+			'output_schema'       => Support\output_object(
+				[
+					'id'         => Support\prop( 'integer', __( 'wp_navigation post ID that was written.', 'hm-abilities-mcp' ) ),
+					'item_count' => Support\prop( 'integer', __( 'Top-level items written. Children nested under them are not counted.', 'hm-abilities-mcp' ) ),
+				],
+				[ 'id', 'item_count' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\update_menu',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
@@ -167,7 +233,8 @@ function can_write( $input = null ) {
 }
 
 /**
- * List navigation menus on the targeted subsite.
+ * List navigation menus on the targeted subsite, newest first, one page at a
+ * time.
  *
  * @param mixed $input Ability input.
  * @return array<string, mixed>|\WP_Error
@@ -175,28 +242,41 @@ function can_write( $input = null ) {
 function list_menus( $input = null ) {
 	return Support\on_site(
 		$input,
-		static function (): array {
-			$menus = array_map(
+		static function () use ( $input ): array {
+			$input = is_array( $input ) ? $input : [];
+
+			$query = new WP_Query(
+				[
+					'post_type'        => 'wp_navigation',
+					'post_status'      => 'publish',
+					'posts_per_page'   => isset( $input['per_page'] ) ? min( Support\MAX_PER_PAGE, max( 1, (int) $input['per_page'] ) ) : 20,
+					'paged'            => isset( $input['page'] ) ? max( 1, (int) $input['page'] ) : 1,
+					'suppress_filters' => true,
+				]
+			);
+
+			$items = array_map(
 				static fn ( WP_Post $post ): array => [
 					'id'    => $post->ID,
 					'title' => get_the_title( $post ),
 					'slug'  => $post->post_name,
 				],
-				get_posts(
-					[
-						'post_type'      => 'wp_navigation',
-						'post_status'    => 'publish',
-						'posts_per_page' => Support\MAX_PER_PAGE,
-					]
-				)
+				$query->posts
 			);
 
-			return [
-				'menus' => $menus,
-				'count' => count( $menus ),
-			];
+			return Support\list_response( $query, $items );
 		}
 	);
+}
+
+/**
+ * Whether a post is a navigation menu in one of the `ALLOWED_STATUSES`.
+ *
+ * @param WP_Post $post Post.
+ * @return bool
+ */
+function is_menu( WP_Post $post ): bool {
+	return $post->post_type === 'wp_navigation' && in_array( $post->post_status, ALLOWED_STATUSES, true );
 }
 
 /**
@@ -218,14 +298,10 @@ function get_menu( $input = null ) {
 				return $id;
 			}
 
-			$post = get_post( $id );
+			$post = Support\resolve_post( $id, 'read_post', 'navigation menu', visible: __NAMESPACE__ . '\\is_menu' );
 
-			if ( ! $post instanceof WP_Post || $post->post_type !== 'wp_navigation' || ! in_array( $post->post_status, ALLOWED_STATUSES, true ) ) {
-				return Support\error( 'hm_abilities_not_found', __( 'No navigation menu found for that ID.', 'hm-abilities-mcp' ), 404 );
-			}
-
-			if ( ! current_user_can( 'read_post', $post->ID ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to read that navigation menu.', 'hm-abilities-mcp' ), 403 );
+			if ( is_wp_error( $post ) ) {
+				return $post;
 			}
 
 			return [
@@ -256,14 +332,10 @@ function update_menu( $input = null ) {
 				return $id;
 			}
 
-			$post = get_post( $id );
+			$post = Support\resolve_post( $id, 'edit_post', 'navigation menu', visible: __NAMESPACE__ . '\\is_menu' );
 
-			if ( ! $post instanceof WP_Post || $post->post_type !== 'wp_navigation' || ! in_array( $post->post_status, ALLOWED_STATUSES, true ) ) {
-				return Support\error( 'hm_abilities_not_found', __( 'No navigation menu found for that ID.', 'hm-abilities-mcp' ), 404 );
-			}
-
-			if ( ! current_user_can( 'edit_post', $post->ID ) ) {
-				return Support\error( 'hm_abilities_forbidden', __( 'You are not allowed to edit that navigation menu.', 'hm-abilities-mcp' ), 403 );
+			if ( is_wp_error( $post ) ) {
+				return $post;
 			}
 
 			if ( ! is_array( $input ) || ! isset( $input['items'] ) ) {

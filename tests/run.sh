@@ -107,6 +107,21 @@ for FILE in "${FILES[@]}"; do
 	fi
 done
 
+# The REST suite runs from the host rather than through wp eval-file, because
+# WP-CLI loads wp-admin includes that a real MCP request does not.
+if [ "$MULTISITE" = "0" ] && { [ -z "$FILTER" ] || [[ "rest-path" == *"$FILTER"* ]]; }; then
+	echo ""
+	echo "=============================================================="
+	echo " rest-path"
+	echo "=============================================================="
+
+	npx @wordpress/env clean all >/dev/null 2>&1
+
+	if ! bash tests/rest-path.sh; then
+		FAILED+=("rest-path")
+	fi
+fi
+
 echo ""
 
 if [ ${#FAILED[@]} -gt 0 ]; then
