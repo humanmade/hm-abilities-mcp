@@ -96,6 +96,7 @@ function register(): void {
 			'description'         => __( 'Read the WordPress General, Reading (including search engine visibility), and permalink settings.', 'hm-abilities-mcp' ),
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema( Support\with_site_id( [] ) ),
+			'output_schema'       => snapshot_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\get_settings',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
 			'meta'                => meta(
@@ -115,6 +116,7 @@ function register(): void {
 			'description'         => __( 'Update WordPress General, Reading (including search engine visibility), and permalink settings. Send any subset of the supported keys.', 'hm-abilities-mcp' ),
 			'category'            => Support\CATEGORY,
 			'input_schema'        => Support\object_schema( Support\with_site_id( update_properties() ) ),
+			'output_schema'       => snapshot_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\update_settings',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
 			'meta'                => meta(
@@ -318,6 +320,39 @@ function snapshot(): array {
 }
 
 /**
+ * Output schema for `snapshot()`, which both settings abilities return.
+ *
+ * Keys and types come from `settings_map()`, so a key added there carries
+ * through. Descriptions are borrowed from the write schema.
+ *
+ * @return array<string, mixed>
+ */
+function snapshot_schema(): array {
+	$writable   = update_properties();
+	$properties = [];
+
+	foreach ( settings_map() as $key => $spec ) {
+		$properties[ $key ] = Support\prop( schema_type( $spec['type'] ), $writable[ $key ]['description'] ?? '' );
+	}
+
+	return Support\output_object( $properties, array_keys( $properties ) );
+}
+
+/**
+ * The JSON type `cast_value()` produces for a settings-map type.
+ *
+ * @param string $type Type recorded in the settings map.
+ * @return string
+ */
+function schema_type( string $type ): string {
+	return match ( $type ) {
+		'integer' => 'integer',
+		'boolean' => 'boolean',
+		default => 'string',
+	};
+}
+
+/**
  * Return every supported setting for the targeted subsite.
  *
  * @param mixed $input Ability input.
@@ -371,12 +406,41 @@ function update_settings( $input = null ) {
 }
 
 /**
+ * Make core's settings-error collector available.
+ *
+ * `sanitize_option()` reports a refused value through `add_settings_error()`,
+ * which lives in wp-admin and is absent from an ability request, so without
+ * this the refusal is dropped and the write looks like it succeeded.
+ *
+ * @return void
+ */
+function load_settings_error_collector(): void {
+	if ( ! function_exists( 'add_settings_error' ) ) {
+		require_once ABSPATH . 'wp-admin/includes/template.php';
+	}
+}
+
+/**
+ * The settings errors recorded so far in this request.
+ *
+ * Read from the global rather than through `get_settings_errors()`, which
+ * re-runs sanitization for a setting when asked to and would write again.
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function settings_errors_log(): array {
+	return isset( $GLOBALS['wp_settings_errors'] ) && is_array( $GLOBALS['wp_settings_errors'] )
+		? $GLOBALS['wp_settings_errors']
+		: [];
+}
+
+/**
  * Validate and apply the requested settings in the (already switched) context.
  *
- * Validates everything before writing anything, so a bad value leaves the site
- * unchanged. Permalinks are applied through the rewrite API and the rules are
- * flushed once at the end; every other setting is written with `update_option()`,
- * which runs its registered sanitizer.
+ * Unknown keys and invalid reading values are rejected before anything is
+ * written. A value core's sanitizer refuses mid-write is caught through
+ * `add_settings_error()` and returned as an error, leaving any setting applied
+ * earlier in the same call in place.
  *
  * @param array<string, mixed> $input Ability input.
  * @return array<string, mixed>|\WP_Error
@@ -412,17 +476,31 @@ function apply_settings( array $input ) {
 	}
 
 	$flush_permalinks = false;
+	$rejected         = [];
+
+	load_settings_error_collector();
 
 	foreach ( $changes as $key => $value ) {
-		$spec = $map[ $key ];
+		$spec      = $map[ $key ];
+		$requested = cast_value( $value, $spec['type'] );
+
+		// Count first: the global accumulates across the loop, so only the
+		// entries added by this write belong to this setting.
+		$before = count( settings_errors_log() );
 
 		if ( $spec['permalink'] ) {
-			set_permalink_option( $key, (string) $value );
+			set_permalink_option( $key, (string) $requested );
 			$flush_permalinks = true;
-			continue;
+		} else {
+			update_option( $spec['option'], $requested );
 		}
 
-		update_option( $spec['option'], cast_value( $value, $spec['type'] ) );
+		foreach ( array_slice( settings_errors_log(), $before ) as $entry ) {
+			if ( ( $entry['setting'] ?? '' ) === $spec['option'] ) {
+				$rejected[] = $key;
+				break;
+			}
+		}
 	}
 
 	if ( $flush_permalinks ) {
@@ -431,21 +509,29 @@ function apply_settings( array $input ) {
 		flush_rewrite_rules( false );
 	}
 
+	if ( $rejected !== [] ) {
+		return Support\error(
+			'hm_abilities_setting_rejected',
+			sprintf(
+				/* translators: %s: comma-separated list of rejected setting keys. */
+				__( 'WordPress would not store the value given for these settings, so they were left unchanged: %s. Nothing was written for them, and any setting applied earlier in this request still stands.', 'hm-abilities-mcp' ),
+				implode( ', ', $rejected )
+			),
+			400
+		);
+	}
+
 	return snapshot();
 }
 
 /**
- * Cross-field validation for the reading settings, carried over from the old
- * set-reading ability. Runs before any write so no partial mutation occurs.
+ * Cross-field validation for the reading settings. Runs before any write so no
+ * partial mutation occurs.
  *
  * @param array<string, mixed> $changes Requested changes.
  * @return true|\WP_Error
  */
 function validate_reading( array $changes ) {
-	if ( isset( $changes['show_on_front'] ) && ! in_array( $changes['show_on_front'], [ 'posts', 'page' ], true ) ) {
-		return Support\error( 'hm_abilities_invalid_show_on_front', __( 'show_on_front must be "posts" or "page".', 'hm-abilities-mcp' ), 400 );
-	}
-
 	foreach ( [ 'page_on_front', 'page_for_posts' ] as $key ) {
 		if ( ! isset( $changes[ $key ] ) ) {
 			continue;
@@ -515,17 +601,12 @@ function set_permalink_option( string $key, string $value ): void {
 		return;
 	}
 
-	switch ( $key ) {
-		case 'permalink_structure':
-			$wp_rewrite->set_permalink_structure( $value );
-			break;
-		case 'category_base':
-			$wp_rewrite->set_category_base( $value );
-			break;
-		case 'tag_base':
-			$wp_rewrite->set_tag_base( $value );
-			break;
-	}
+	match ( $key ) {
+		'permalink_structure' => $wp_rewrite->set_permalink_structure( $value ),
+		'category_base'       => $wp_rewrite->set_category_base( $value ),
+		'tag_base'            => $wp_rewrite->set_tag_base( $value ),
+		default               => null,
+	};
 }
 
 /**
@@ -538,12 +619,9 @@ function set_permalink_option( string $key, string $value ): void {
  * @return mixed
  */
 function cast_value( $value, string $type ) {
-	switch ( $type ) {
-		case 'integer':
-			return (int) $value;
-		case 'boolean':
-			return (bool) $value;
-		default:
-			return (string) $value;
-	}
+	return match ( $type ) {
+		'integer' => (int) $value,
+		'boolean' => (bool) $value,
+		default   => (string) $value,
+	};
 }
