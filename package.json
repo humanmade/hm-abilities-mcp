@@ -12,7 +12,9 @@
 		"format": "wp-scripts format",
 		"lint:php": "composer phpcs",
 		"test": "bash tests/run.sh",
-		"test:multisite": "bash tests/run.sh --multisite"
+		"test:multisite": "bash tests/run.sh --multisite",
+		"test:version": "bash tests/test-version-bump.sh",
+		"check:version": "bash .github/check-version-bump.sh"
 	},
 	"author": "Human Made Limited",
 	"license": "GPL-2.0-or-later",
