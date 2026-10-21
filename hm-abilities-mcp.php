@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       HM Abilities MCP
- * Description:       Registers a set of WordPress Abilities API entries (whoami, content CRUD, media sideload, navigation, settings read/write, block helpers) flagged for exposure over MCP.
- * Version:           0.1.2
+ * Description:       Registers a set of WordPress Abilities API entries (whoami, content CRUD, media sideload, navigation, settings read/write, block helpers, REST API read and opt-in write) flagged for exposure over MCP.
+ * Version:           0.2.0
  * Requires at least: 6.9
  * Requires PHP:      8.2
  * Author:            Human Made
@@ -33,5 +33,6 @@ require_once __DIR__ . '/inc/settings.php';
 require_once __DIR__ . '/inc/blocks.php';
 require_once __DIR__ . '/inc/block-insights.php';
 require_once __DIR__ . '/inc/sites.php';
+require_once __DIR__ . '/inc/rest-api.php';
 
 bootstrap();

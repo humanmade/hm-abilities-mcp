@@ -28,4 +28,5 @@ function bootstrap(): void {
 	Blocks\bootstrap();
 	Block_Insights\bootstrap();
 	Sites\bootstrap();
+	Rest_Api\bootstrap();
 }

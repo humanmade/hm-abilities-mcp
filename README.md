@@ -36,7 +36,7 @@ Every ability is also served by core at `/wp-json/wp-abilities/v1/abilities/<nam
 | Method   | Abilities                                                          |
 | -------- | ------------------------------------------------------------------ |
 | `GET`    | Every read-only ability. Input goes in the query string as `input[key]=value` |
-| `POST`   | `create-content` and `upload-media`. Input goes in a JSON body as `{"input": {...}}` |
+| `POST`   | `create-content`, `upload-media` and `write-rest-api`. Input goes in a JSON body as `{"input": {...}}` |
 | `DELETE` | `update-content`, `update-navigation` and `update-settings`, which overwrite what is there |
 
 ```sh
@@ -56,7 +56,7 @@ Four abilities can reach every subsite: those two, `get-page-blocks` and `list-n
 
 ## Abilities
 
-All 20 sit in the `hm-abilities` category.
+All 22 sit in the `hm-abilities` category. `write-rest-api` is registered only when a site opts in.
 
 | Ability                                  | Does                                                            |
 | ---------------------------------------- | --------------------------------------------------------------- |
@@ -80,6 +80,8 @@ All 20 sit in the `hm-abilities` category.
 | `hm-abilities/block-usage-stats`         | How often each block type is used, on a site or across the network |
 | `hm-abilities/get-page-blocks`           | The blocks on one page, found by URL or ID                      |
 | `hm-abilities/find-missing-block`        | Which subsites lack a block type on their front page            |
+| `hm-abilities/read-rest-api`             | Sends a GET or OPTIONS request to any REST route                |
+| `hm-abilities/write-rest-api`            | Sends a POST, PUT, PATCH or DELETE request to any REST route. Opt-in |
 
 The examples below are the `input` object an assistant sends. Every list ability answers with `items`, `count`, `total`, `page`, `total_pages`, `has_more` and `next_page`. `per_page` defaults to 20 and stops at 100.
 
@@ -369,6 +371,42 @@ Reports which subsites have a block type on their front page, and which do not. 
 { "block_name": "core/details", "path": "faq" }
 ```
 
+### Calling any REST route
+
+These reach routes the other abilities do not cover. Each one dispatches the request on the site serving it, takes no `site_id`, and returns the route's `status`, `headers` and `data`. The route's own permission check still runs, so a refused request comes back as a 401 or 403 `status` with the error in `data`.
+
+The two are split by method so each carries an annotation that holds for every call. An MCP client or an IT policy can allow the read-only one and block the destructive one.
+
+| Input    | Notes                                                                          |
+| -------- | ------------------------------------------------------------------------------ |
+| `method` | Required. Limited to the ability's own methods                                 |
+| `route`  | Required. A path such as `/wp/v2/posts/12`, with no query string               |
+| `params` | Query arguments for GET, OPTIONS and DELETE. The body for POST, PUT and PATCH. `_fields` and `_embed` work as over HTTP |
+
+#### `hm-abilities/read-rest-api`
+
+Takes `GET` and `OPTIONS`, and is annotated read-only. Any logged-in user can call it. `GET /wp/v2` lists the core routes, and `OPTIONS` on a route describes its arguments.
+
+```json
+{ "method": "GET", "route": "/wp/v2/posts", "params": { "per_page": 5 } }
+```
+
+It reads any post type a route exposes, so `hm_abilities_post_types` does not narrow it. Read-only is a REST convention: a plugin route that writes on `GET` would still run.
+
+#### `hm-abilities/write-rest-api`
+
+Takes `POST`, `PUT`, `PATCH` and `DELETE`, and is annotated destructive. `POST` is in the destructive set because core routes use it to edit: `POST /wp/v2/posts/12` overwrites post 12.
+
+It is not registered until a site opts in, and then needs `manage_options` on that site:
+
+```php
+add_filter( 'hm_abilities_enable_rest_write', '__return_true' );
+```
+
+```json
+{ "method": "DELETE", "route": "/wp/v2/posts/12", "params": { "force": true } }
+```
+
 ## Filters
 
 | Filter                                     | Receives                              | Default                                       |
@@ -380,6 +418,7 @@ Reports which subsites have a block type on their front page, and which do not. 
 | `hm_abilities_media_max_data_bytes`        | Largest base64 file, decoded          | 5 MB, held under the upload limit             |
 | `hm_abilities_block_usage_scan_limit`      | Posts scanned per site, and the scope | `500`                                         |
 | `hm_abilities_allow_non_live_site_writes`  | Whether to write to a site that is not live, and its ID | `false`             |
+| `hm_abilities_enable_rest_write`           | Whether to register `write-rest-api`  | `false`                                       |
 
 A base64 upload raises peak memory by about 5.6 times the file's size through the MCP adapter. Raise PHP's `memory_limit` alongside `hm_abilities_media_max_data_bytes`.
 
@@ -392,8 +431,8 @@ add_filter( 'hm_abilities_post_types', function ( array $post_types ): array {
 
 ## Limits
 
-- No ability deletes or trashes content, media, menus or terms.
-- No ability assigns terms to a post, or edits post meta, featured images or excerpts.
+- Apart from `write-rest-api`, no ability deletes or trashes content, media, menus or terms.
+- Apart from `write-rest-api`, no ability assigns terms to a post, or edits post meta, featured images or excerpts.
 - Settings cover the General and Reading screens and permalinks only. Discussion, Media and Privacy settings are not exposed.
 - `list-block-types` and `validate-blocks` cannot target another subsite.
 - `upload-media` matches a repeat import by URL, not by content, so the same file at two URLs is imported twice.
