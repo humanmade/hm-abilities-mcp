@@ -124,6 +124,8 @@ function register(): void {
 						__( 'Post types the scan covered.', 'hm-abilities-mcp' )
 					),
 					'post_count'           => Support\prop( 'integer', __( 'Posts scanned across every site in this response.', 'hm-abilities-mcp' ) ),
+					/* translators: 1: largest number of posts scanned per site. */
+					'truncated'            => Support\prop( 'boolean', sprintf( __( 'True when any site scanned holds more than %1$d matching posts, so its counts cover only the %1$d with the lowest post IDs.', 'hm-abilities-mcp' ), SCAN_LIMIT ) ),
 					'block_count'          => Support\prop( 'integer', __( 'Block instances counted across every site in this response.', 'hm-abilities-mcp' ) ),
 					'distinct_block_types' => Support\prop( 'integer', __( 'How many different block types were seen.', 'hm-abilities-mcp' ) ),
 					'blocks'               => Support\block_tally_schema(),
@@ -134,7 +136,7 @@ function register(): void {
 					'pagination'           => Support\site_batch_schema(),
 					'note'                 => partial_note_schema(),
 				],
-				[ 'scope', 'status', 'post_types', 'post_count', 'block_count', 'distinct_block_types', 'blocks' ]
+				[ 'scope', 'status', 'post_types', 'post_count', 'truncated', 'block_count', 'distinct_block_types', 'blocks' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\block_usage_stats',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
@@ -312,6 +314,7 @@ function block_usage_stats( $input = null ) {
 	$global    = [];
 	$by_site   = [];
 	$posts_all = 0;
+	$truncated = false;
 
 	foreach ( $blog_ids as $blog_id ) {
 		$site = Support\with_site(
@@ -322,6 +325,7 @@ function block_usage_stats( $input = null ) {
 		);
 
 		$posts_all += $site['post_count'];
+		$truncated  = $truncated || $site['truncated'];
 
 		foreach ( $site['tally'] as $name => $count ) {
 			$global[ $name ] = ( $global[ $name ] ?? 0 ) + $count;
@@ -347,6 +351,7 @@ function block_usage_stats( $input = null ) {
 		'status'                => $status,
 		'post_types'            => array_values( $post_types ),
 		'post_count'            => $posts_all,
+		'truncated'             => $truncated,
 		'block_count'           => array_sum( $global ),
 		'distinct_block_types'  => count( $global ),
 		'blocks'                => Support\tally_to_list( $global ),
