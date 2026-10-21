@@ -222,6 +222,10 @@ function require_status_cap( string $status, string $post_type ): ?WP_Error {
  * Dates are ISO 8601 in the site timezone. `terms` appears only when asked for
  * through `$fields`; see `post_fields()`.
  *
+ * `title` is the stored title, not `get_the_title()`. The rendered one carries
+ * texturized entities and a "Private: " prefix, which `update-content` would
+ * save if a caller sent the title back.
+ *
  * @param WP_Post  $post         Post object.
  * @param bool     $with_content Include raw block markup.
  * @param string[] $fields       Extra fields to include. Accepts 'terms'. Default empty.
@@ -230,7 +234,7 @@ function require_status_cap( string $status, string $post_type ): ?WP_Error {
 function format_post( WP_Post $post, bool $with_content = false, array $fields = [] ): array {
 	$data = [
 		'id'       => $post->ID,
-		'title'    => get_the_title( $post ),
+		'title'    => $post->post_title,
 		'slug'     => $post->post_name,
 		'status'   => $post->post_status,
 		'type'     => $post->post_type,
@@ -263,7 +267,7 @@ function format_post( WP_Post $post, bool $with_content = false, array $fields =
 function post_schema( bool $with_content = false ): array {
 	$properties = [
 		'id'       => prop( 'integer', __( 'Post ID.', 'hm-abilities-mcp' ) ),
-		'title'    => prop( 'string', __( 'Rendered post title.', 'hm-abilities-mcp' ) ),
+		'title'    => prop( 'string', __( 'Post title as stored, which update-content accepts back unchanged.', 'hm-abilities-mcp' ) ),
 		'slug'     => prop( 'string', __( 'Post slug.', 'hm-abilities-mcp' ) ),
 		'status'   => prop( 'string', __( 'Post status, for instance publish or draft.', 'hm-abilities-mcp' ) ),
 		'type'     => prop( 'string', __( 'Post type slug.', 'hm-abilities-mcp' ) ),
