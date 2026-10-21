@@ -16,20 +16,29 @@ use WP_Post;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Largest number of posts scanned per site when tallying block usage, to bound
- * query and memory cost. Results note when a site is truncated.
+ * Default largest number of posts scanned per site when tallying block usage,
+ * to bound query and memory cost. `hm_abilities_block_usage_scan_limit`
+ * changes it. Results note when a site is truncated.
  *
  * @var int
  */
 const SCAN_LIMIT = 500;
 
 /**
+ * Posts read per query while scanning a site, so peak memory stays near one
+ * batch's content whatever the scan limit.
+ *
+ * @var int
+ */
+const SCAN_BATCH = 100;
+
+/**
  * Sites tallied per `block-usage-stats` call at network scope: default, then
  * the hard ceiling.
  *
- * Each site here costs a `switch_to_blog`, a query for up to SCAN_LIMIT posts,
- * and a block parse of every one of them, so the ceiling is deliberately low —
- * a page of 25 sites is already up to 12,500 post parses in one request.
+ * Each site here costs a `switch_to_blog`, a query for up to the scan limit's
+ * posts, and a block parse of every one of them, so the ceiling is deliberately
+ * low. At the default SCAN_LIMIT, a page of 25 sites is up to 12,500 post parses.
  * Callers cover a larger network by following `next_page` across calls.
  *
  * @var int
@@ -124,6 +133,7 @@ function register(): void {
 						__( 'Post types the scan covered.', 'hm-abilities-mcp' )
 					),
 					'post_count'           => Support\prop( 'integer', __( 'Posts scanned across every site in this response.', 'hm-abilities-mcp' ) ),
+					'truncated'            => Support\prop( 'boolean', __( 'True when any site scanned holds more matching posts than the scan limit, so its counts cover only that many, lowest post IDs first.', 'hm-abilities-mcp' ) ),
 					'block_count'          => Support\prop( 'integer', __( 'Block instances counted across every site in this response.', 'hm-abilities-mcp' ) ),
 					'distinct_block_types' => Support\prop( 'integer', __( 'How many different block types were seen.', 'hm-abilities-mcp' ) ),
 					'blocks'               => Support\block_tally_schema(),
@@ -134,7 +144,7 @@ function register(): void {
 					'pagination'           => Support\site_batch_schema(),
 					'note'                 => partial_note_schema(),
 				],
-				[ 'scope', 'status', 'post_types', 'post_count', 'block_count', 'distinct_block_types', 'blocks' ]
+				[ 'scope', 'status', 'post_types', 'post_count', 'truncated', 'block_count', 'distinct_block_types', 'blocks' ]
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\block_usage_stats',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
@@ -309,19 +319,46 @@ function block_usage_stats( $input = null ) {
 		$blog_ids = [ isset( $input['site_id'] ) ? (int) $input['site_id'] : get_current_blog_id() ];
 	}
 
+	/**
+	 * Filters the largest number of posts scanned per site.
+	 *
+	 * Raise it for a site whose content outgrows the default, so its counts
+	 * are complete rather than reported as truncated. Each post scanned is a
+	 * block parse, and at network scope the limit applies to every site in
+	 * the page, so raise it for site scope alone unless the network is small.
+	 *
+	 * @param int    $limit Posts scanned per site, or -1 for no limit. Default SCAN_LIMIT.
+	 * @param string $scope "site" or "network".
+	 */
+	$limit = apply_filters( 'hm_abilities_block_usage_scan_limit', SCAN_LIMIT, $scope );
+
+	// -1 means no limit, as in WP_Query. So does PHP_INT_MAX and above, where the
+	// extra row that detects truncation would overflow; compared before the cast wraps it.
+	if ( is_numeric( $limit ) && $limit >= PHP_INT_MAX ) {
+		$limit = null;
+	} else {
+		$limit = (int) $limit === -1 ? null : max( 1, (int) $limit );
+	}
+
 	$global    = [];
 	$by_site   = [];
 	$posts_all = 0;
+	$truncated = false;
 
 	foreach ( $blog_ids as $blog_id ) {
 		$site = Support\with_site(
 			$blog_id,
-			static function () use ( $post_types, $status ): array {
-				return scan_site( $post_types, $status );
+			static function () use ( $post_types, $status, $limit ) {
+				return scan_site( $post_types, $status, $limit );
 			}
 		);
 
+		if ( is_wp_error( $site ) ) {
+			return $site;
+		}
+
 		$posts_all += $site['post_count'];
+		$truncated  = $truncated || $site['truncated'];
 
 		foreach ( $site['tally'] as $name => $count ) {
 			$global[ $name ] = ( $global[ $name ] ?? 0 ) + $count;
@@ -347,6 +384,7 @@ function block_usage_stats( $input = null ) {
 		'status'                => $status,
 		'post_types'            => array_values( $post_types ),
 		'post_count'            => $posts_all,
+		'truncated'             => $truncated,
 		'block_count'           => array_sum( $global ),
 		'distinct_block_types'  => count( $global ),
 		'blocks'                => Support\tally_to_list( $global ),
@@ -369,39 +407,61 @@ function block_usage_stats( $input = null ) {
  *
  * Unpublished statuses are scoped to what the caller may read.
  *
+ * Takes the IDs through WP_Query, which applies that scoping, then reads only
+ * their content, SCAN_BATCH posts at a time. An ID query returns before the
+ * `posts_results` and `the_posts` filters, so a plugin hiding posts there does
+ * not narrow the scan.
+ *
  * @param string[] $post_types Post types to scan.
  * @param string   $status     Post status filter ("any" or a concrete status).
- * @return array{tally: array<string,int>, post_count: int, truncated: bool, summary: array<string,mixed>}
+ * @param int|null $limit      Largest number of posts to scan, or null for all.
+ * @return array{tally: array<string,int>, post_count: int, truncated: bool, summary: array<string,mixed>}|\WP_Error
  */
-function scan_site( array $post_types, string $status ): array {
-	$posts = get_posts(
-		array_merge(
-			[
-				'post_type'        => $post_types,
-				'posts_per_page'   => SCAN_LIMIT + 1,
-				'orderby'          => 'ID',
-				'order'            => 'ASC',
-				'suppress_filters' => false,
-				'no_found_rows'    => true,
-			],
-			Support\status_query_args( $status )
-		)
+function scan_site( array $post_types, string $status, ?int $limit ) {
+	global $wpdb;
+
+	$scope = array_merge(
+		[
+			'post_type'        => $post_types,
+			'suppress_filters' => false,
+			'no_found_rows'    => true,
+		],
+		Support\status_query_args( $status )
 	);
 
-	$truncated = count( $posts ) > SCAN_LIMIT;
+	$ids = get_posts(
+		$scope + [
+			'posts_per_page' => $limit === null ? -1 : $limit + 1,
+			'orderby'        => 'ID',
+			'order'          => 'ASC',
+			'fields'         => 'ids',
+		]
+	);
+
+	$truncated = $limit !== null && count( $ids ) > $limit;
 	if ( $truncated ) {
-		$posts = array_slice( $posts, 0, SCAN_LIMIT );
+		$ids = array_slice( $ids, 0, $limit );
 	}
 
 	$tally = [];
 
-	foreach ( $posts as $post ) {
-		if ( ! $post instanceof WP_Post || $post->post_content === '' ) {
-			continue;
+	foreach ( array_chunk( $ids, SCAN_BATCH ) as $batch ) {
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- WP_Query primes every post it loads into the object cache, which a tally never reads again.
+		$contents = $wpdb->get_col( $wpdb->prepare( "SELECT post_content FROM {$wpdb->posts} WHERE ID IN (" . implode( ',', array_fill( 0, count( $batch ), '%d' ) ) . ')', $batch ) );
+
+		// A failed read returns no rows, which would tally the batch as empty posts.
+		if ( $wpdb->last_error !== '' ) {
+			return Support\error( 'hm_abilities_block_scan_failed', __( 'Could not read post content for the block scan.', 'hm-abilities-mcp' ), 500 );
 		}
 
-		foreach ( Support\tally_blocks( $post->post_content ) as $name => $count ) {
-			$tally[ $name ] = ( $tally[ $name ] ?? 0 ) + $count;
+		foreach ( $contents as $content ) {
+			if ( $content === '' ) {
+				continue;
+			}
+
+			foreach ( Support\tally_blocks( (string) $content ) as $name => $count ) {
+				$tally[ $name ] = ( $tally[ $name ] ?? 0 ) + $count;
+			}
 		}
 	}
 
@@ -409,7 +469,7 @@ function scan_site( array $post_types, string $status ): array {
 
 	return [
 		'tally'      => $tally,
-		'post_count' => count( $posts ),
+		'post_count' => count( $ids ),
 		'truncated'  => $truncated,
 		'summary'    => Support\current_site_summary(),
 	];
@@ -635,8 +695,7 @@ function site_tally_row_schema(): array {
 		[
 			'post_count'  => Support\prop( 'integer', __( 'Posts scanned on this site.', 'hm-abilities-mcp' ) ),
 			'block_count' => Support\prop( 'integer', __( 'Block instances counted on this site.', 'hm-abilities-mcp' ) ),
-			/* translators: %d: largest number of posts scanned per site. */
-			'truncated'   => Support\prop( 'boolean', sprintf( __( 'True when the site holds more than %d matching posts, so the counts below cover only that many.', 'hm-abilities-mcp' ), SCAN_LIMIT ) ),
+			'truncated'   => Support\prop( 'boolean', __( 'True when the site holds more matching posts than the scan limit, so the counts below cover only that many.', 'hm-abilities-mcp' ) ),
 			'blocks'      => Support\block_tally_schema(),
 		],
 		[ 'post_count', 'block_count', 'truncated', 'blocks' ]
