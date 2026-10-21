@@ -348,10 +348,14 @@ function block_usage_stats( $input = null ) {
 	foreach ( $blog_ids as $blog_id ) {
 		$site = Support\with_site(
 			$blog_id,
-			static function () use ( $post_types, $status, $limit ): array {
+			static function () use ( $post_types, $status, $limit ) {
 				return scan_site( $post_types, $status, $limit );
 			}
 		);
+
+		if ( is_wp_error( $site ) ) {
+			return $site;
+		}
 
 		$posts_all += $site['post_count'];
 		$truncated  = $truncated || $site['truncated'];
@@ -411,9 +415,9 @@ function block_usage_stats( $input = null ) {
  * @param string[] $post_types Post types to scan.
  * @param string   $status     Post status filter ("any" or a concrete status).
  * @param int|null $limit      Largest number of posts to scan, or null for all.
- * @return array{tally: array<string,int>, post_count: int, truncated: bool, summary: array<string,mixed>}
+ * @return array{tally: array<string,int>, post_count: int, truncated: bool, summary: array<string,mixed>}|\WP_Error
  */
-function scan_site( array $post_types, string $status, ?int $limit ): array {
+function scan_site( array $post_types, string $status, ?int $limit ) {
 	global $wpdb;
 
 	$scope = array_merge(
@@ -442,10 +446,13 @@ function scan_site( array $post_types, string $status, ?int $limit ): array {
 	$tally = [];
 
 	foreach ( array_chunk( $ids, SCAN_BATCH ) as $batch ) {
-		$in = implode( ',', array_map( 'intval', $batch ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- WP_Query primes every post it loads into the object cache, which a tally never reads again.
+		$contents = $wpdb->get_col( $wpdb->prepare( "SELECT post_content FROM {$wpdb->posts} WHERE ID IN (" . implode( ',', array_fill( 0, count( $batch ), '%d' ) ) . ')', $batch ) );
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WP_Query primes every post it loads into the object cache, which a tally never reads again. $in is integers from the scoped query above.
-		$contents = $wpdb->get_col( "SELECT post_content FROM {$wpdb->posts} WHERE ID IN ($in)" );
+		// A failed read returns no rows, which would tally the batch as empty posts.
+		if ( $wpdb->last_error !== '' ) {
+			return Support\error( 'hm_abilities_block_scan_failed', __( 'Could not read post content for the block scan.', 'hm-abilities-mcp' ), 500 );
+		}
 
 		foreach ( $contents as $content ) {
 			if ( $content === '' ) {

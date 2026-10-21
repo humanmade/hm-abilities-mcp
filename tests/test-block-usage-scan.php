@@ -105,6 +105,21 @@ foreach ( [ -1, PHP_INT_MAX, PHP_INT_MAX + 1, INF ] as $limit ) {
 
 remove_action( 'pre_get_posts', $see_query );
 
+echo "\n== a failed content read ==\n";
+
+global $wpdb;
+
+// Breaks only the content query, so the ID query still finds posts to read.
+$break_read = static fn ( string $query ): string => str_contains( $query, 'SELECT post_content' ) ? 'SELECT post_content FROM hm_missing_table' : $query;
+add_filter( 'query', $break_read );
+$suppressed = $wpdb->suppress_errors( true );
+
+$failed = run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
+
+$wpdb->suppress_errors( $suppressed );
+remove_filter( 'query', $break_read );
+check( 'the scan reports the failure rather than counting the posts as empty', code( $failed ) === 'hm_abilities_block_scan_failed', $failed );
+
 remove_filter( 'hm_abilities_block_usage_scan_limit', $set_limit, 10 );
 
 summary();
