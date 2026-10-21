@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       HM Abilities MCP
  * Description:       Registers a set of WordPress Abilities API entries (whoami, content CRUD, media sideload, navigation, settings read/write, block helpers) flagged for exposure over MCP.
- * Version:           0.1.1
+ * Version:           0.1.2
  * Requires at least: 6.9
  * Requires PHP:      8.2
  * Author:            Human Made

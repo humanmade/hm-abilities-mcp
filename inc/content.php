@@ -105,7 +105,7 @@ function register(): void {
 			'output_schema'       => Support\list_schema( Support\post_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
-			'meta'                => meta( $read ),
+			'meta'                => Support\meta( $read ),
 		]
 	);
 
@@ -153,7 +153,7 @@ function register(): void {
 			'output_schema'       => Support\list_schema( Support\post_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_recent_articles',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
-			'meta'                => meta( $read ),
+			'meta'                => Support\meta( $read ),
 		]
 	);
 
@@ -179,7 +179,7 @@ function register(): void {
 			'output_schema'       => Support\post_schema( true ),
 			'execute_callback'    => __NAMESPACE__ . '\\get_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
-			'meta'                => meta( $read ),
+			'meta'                => Support\meta( $read ),
 		]
 	);
 
@@ -214,7 +214,7 @@ function register(): void {
 			'output_schema'       => Support\post_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\create_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
-			'meta'                => meta(
+			'meta'                => Support\meta(
 				[
 					'readonly'    => false,
 					'destructive' => false,
@@ -251,23 +251,9 @@ function register(): void {
 			'output_schema'       => Support\post_schema(),
 			'execute_callback'    => __NAMESPACE__ . '\\update_content',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
-			'meta'                => meta( $write ),
+			'meta'                => Support\meta( $write ),
 		]
 	);
-}
-
-/**
- * Build the meta block shared by content abilities.
- *
- * @param array<string, bool> $annotations Annotation flags.
- * @return array<string, mixed>
- */
-function meta( array $annotations ): array {
-	return [
-		'show_in_rest' => true,
-		'mcp'          => [ 'public' => true ],
-		'annotations'  => $annotations,
-	];
 }
 
 /**

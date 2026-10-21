@@ -105,17 +105,13 @@ function register(): void {
 				'required'             => [ 'id', 'username', 'display_name', 'email', 'roles', 'site' ],
 				'additionalProperties' => false,
 			],
-			'meta'                => [
-				'show_in_rest' => true,
-				'mcp'          => [
-					'public' => true,
-				],
-				'annotations'  => [
+			'meta'                => Support\meta(
+				[
 					'readonly'    => true,
 					'destructive' => false,
 					'idempotent'  => true,
-				],
-			],
+				]
+			),
 		]
 	);
 }

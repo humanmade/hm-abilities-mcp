@@ -141,15 +141,13 @@ function register(): void {
 			],
 			'execute_callback'    => __NAMESPACE__ . '\\upload_media',
 			'permission_callback' => __NAMESPACE__ . '\\can_upload',
-			'meta'                => [
-				'show_in_rest' => true,
-				'mcp'          => [ 'public' => true ],
-				'annotations'  => [
+			'meta'                => Support\meta(
+				[
 					'readonly'    => false,
 					'destructive' => false,
 					'idempotent'  => true,
-				],
-			],
+				]
+			),
 		]
 	);
 }
