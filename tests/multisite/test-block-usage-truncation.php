@@ -8,15 +8,12 @@
  * @package HM_Abilities_MCP
  */
 
-use const HM\Abilities\Block_Insights\SCAN_LIMIT;
-
 if ( ! is_multisite() ) {
 	echo "SKIP  not a multisite install\n";
 	return;
 }
 
 wp_set_current_user( 1 );
-wp_defer_term_counting( true );
 
 $main = get_current_blog_id();
 $big  = get_blog_id_from_url( 'localhost', '/scan-cut/' ) ?: wpmu_create_blog( 'localhost', '/scan-cut/', 'Scan cut', 1 );
@@ -28,8 +25,18 @@ if ( is_wp_error( $big ) ) {
 
 $big = (int) $big;
 
+// The main site sits exactly at the limit and the subsite one past it.
+$limit     = (int) wp_count_posts( 'post' )->publish;
+$scopes    = [];
+$set_limit = static function ( $default_limit, $scope ) use ( $limit, &$scopes ) {
+	$scopes[] = $scope;
+
+	return $limit;
+};
+add_filter( 'hm_abilities_block_usage_scan_limit', $set_limit, 10, 2 );
+
 switch_to_blog( $big );
-for ( $i = (int) wp_count_posts( 'post' )->publish; $i <= SCAN_LIMIT; $i++ ) {
+for ( $i = (int) wp_count_posts( 'post' )->publish; $i <= $limit; $i++ ) {
 	wp_insert_post( [
 		'post_type'    => 'post',
 		'post_title'   => "Scan fixture $i",
@@ -37,7 +44,7 @@ for ( $i = (int) wp_count_posts( 'post' )->publish; $i <= SCAN_LIMIT; $i++ ) {
 		'post_content' => '<!-- wp:paragraph --><p>x</p><!-- /wp:paragraph -->',
 	] );
 }
-check( 'baseline: the subsite holds more than SCAN_LIMIT posts', (int) wp_count_posts( 'post' )->publish > SCAN_LIMIT, wp_count_posts( 'post' )->publish );
+check( 'baseline: the subsite holds more posts than the limit', (int) wp_count_posts( 'post' )->publish > $limit, wp_count_posts( 'post' )->publish );
 restore_current_blog();
 
 echo "\n== network scope ==\n";
@@ -45,11 +52,14 @@ echo "\n== network scope ==\n";
 $stats = run( 'hm-abilities/block-usage-stats', [ 'scope' => 'network', 'site_ids' => [ $big, $main ], 'post_type' => 'post' ] );
 $rows  = array_column( (array) field( $stats, 'sites' ), 'truncated', 'site_id' );
 
+check( 'the filter is told the scope', $scopes === [ 'network' ], $scopes );
 check( 'the large subsite is flagged in its own row', ( $rows[ $big ] ?? null ) === true, $rows );
 check( 'the main site is not', ( $rows[ $main ] ?? null ) === false, $rows );
 check( 'and the response as a whole says it is truncated', field( $stats, 'truncated' ) === true, $stats );
 
 $main_only = run( 'hm-abilities/block-usage-stats', [ 'scope' => 'network', 'site_ids' => [ $main ], 'post_type' => 'post' ] );
 check( 'a page of untruncated sites is not', field( $main_only, 'truncated' ) === false, $main_only );
+
+remove_filter( 'hm_abilities_block_usage_scan_limit', $set_limit, 10 );
 
 summary();

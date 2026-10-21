@@ -1,8 +1,9 @@
 <?php
 /**
- * Covers block-usage-stats reporting a scan cut short at SCAN_LIMIT posts at
- * site scope, where a caller otherwise reads partial counts as site totals.
- * Helpers come from tests/bootstrap.php.
+ * Covers block-usage-stats' scan limit at site scope: the result says when a
+ * scan was cut short, and hm_abilities_block_usage_scan_limit moves the limit.
+ * The filter keeps the fixtures to a handful of posts. Helpers come from
+ * tests/bootstrap.php.
  *
  * @package HM_Abilities_MCP
  */
@@ -10,7 +11,6 @@
 use const HM\Abilities\Block_Insights\SCAN_LIMIT;
 
 wp_set_current_user( 1 );
-wp_defer_term_counting( true );
 
 $add_posts = static function ( int $count ): void {
 	for ( $i = 0; $i < $count; $i++ ) {
@@ -25,13 +25,23 @@ $add_posts = static function ( int $count ): void {
 
 $published = static fn (): int => (int) wp_count_posts( 'post' )->publish;
 
+$limit     = 3;
+$seen      = [];
+$set_limit = static function ( $default_limit, $scope ) use ( &$limit, &$seen ) {
+	$seen = [ $default_limit, $scope ];
+
+	return $limit;
+};
+add_filter( 'hm_abilities_block_usage_scan_limit', $set_limit, 10, 2 );
+
 echo "== at the limit ==\n";
 
-$add_posts( SCAN_LIMIT - $published() );
-check( 'baseline: exactly SCAN_LIMIT published posts', $published() === SCAN_LIMIT, $published() );
+$add_posts( $limit - $published() );
+check( 'baseline: exactly the limit in published posts', $published() === $limit, $published() );
 
 $full = run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
-check( 'every post is scanned', field( $full, 'post_count' ) === SCAN_LIMIT, $full );
+check( 'the filter receives the default limit and the scope', $seen === [ SCAN_LIMIT, 'site' ], $seen );
+check( 'every post is scanned', field( $full, 'post_count' ) === $limit, $full );
 check( 'and the result is not truncated', field( $full, 'truncated' ) === false, $full );
 
 echo "\n== one past the limit ==\n";
@@ -39,7 +49,17 @@ echo "\n== one past the limit ==\n";
 $add_posts( 1 );
 
 $cut = run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
-check( 'the scan stops at SCAN_LIMIT', field( $cut, 'post_count' ) === SCAN_LIMIT, $cut );
+check( 'the scan stops at the limit', field( $cut, 'post_count' ) === $limit, $cut );
 check( 'and the result says so', field( $cut, 'truncated' ) === true, $cut );
+
+echo "\n== a raised limit ==\n";
+
+$limit = 10;
+
+$raised = run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
+check( 'every post is scanned again', field( $raised, 'post_count' ) === $published(), $raised );
+check( 'and the result is not truncated', field( $raised, 'truncated' ) === false, $raised );
+
+remove_filter( 'hm_abilities_block_usage_scan_limit', $set_limit, 10 );
 
 summary();

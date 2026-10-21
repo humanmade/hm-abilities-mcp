@@ -16,8 +16,9 @@ use WP_Post;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Largest number of posts scanned per site when tallying block usage, to bound
- * query and memory cost. Results note when a site is truncated.
+ * Default largest number of posts scanned per site when tallying block usage,
+ * to bound query and memory cost. `hm_abilities_block_usage_scan_limit`
+ * changes it. Results note when a site is truncated.
  *
  * @var int
  */
@@ -124,8 +125,7 @@ function register(): void {
 						__( 'Post types the scan covered.', 'hm-abilities-mcp' )
 					),
 					'post_count'           => Support\prop( 'integer', __( 'Posts scanned across every site in this response.', 'hm-abilities-mcp' ) ),
-					/* translators: 1: largest number of posts scanned per site. */
-					'truncated'            => Support\prop( 'boolean', sprintf( __( 'True when any site scanned holds more than %1$d matching posts, so its counts cover only the %1$d with the lowest post IDs.', 'hm-abilities-mcp' ), SCAN_LIMIT ) ),
+					'truncated'            => Support\prop( 'boolean', __( 'True when any site scanned holds more matching posts than the scan limit, so its counts cover only that many, lowest post IDs first.', 'hm-abilities-mcp' ) ),
 					'block_count'          => Support\prop( 'integer', __( 'Block instances counted across every site in this response.', 'hm-abilities-mcp' ) ),
 					'distinct_block_types' => Support\prop( 'integer', __( 'How many different block types were seen.', 'hm-abilities-mcp' ) ),
 					'blocks'               => Support\block_tally_schema(),
@@ -311,6 +311,19 @@ function block_usage_stats( $input = null ) {
 		$blog_ids = [ isset( $input['site_id'] ) ? (int) $input['site_id'] : get_current_blog_id() ];
 	}
 
+	/**
+	 * Filters the largest number of posts scanned per site.
+	 *
+	 * Raise it for a site whose content outgrows the default, so its counts
+	 * are complete rather than reported as truncated. Each post scanned is a
+	 * block parse, and at network scope the limit applies to every site in
+	 * the page, so raise it for site scope alone unless the network is small.
+	 *
+	 * @param int    $limit Posts scanned per site. Default SCAN_LIMIT.
+	 * @param string $scope "site" or "network".
+	 */
+	$limit = max( 1, (int) apply_filters( 'hm_abilities_block_usage_scan_limit', SCAN_LIMIT, $scope ) );
+
 	$global    = [];
 	$by_site   = [];
 	$posts_all = 0;
@@ -319,8 +332,8 @@ function block_usage_stats( $input = null ) {
 	foreach ( $blog_ids as $blog_id ) {
 		$site = Support\with_site(
 			$blog_id,
-			static function () use ( $post_types, $status ): array {
-				return scan_site( $post_types, $status );
+			static function () use ( $post_types, $status, $limit ): array {
+				return scan_site( $post_types, $status, $limit );
 			}
 		);
 
@@ -376,14 +389,15 @@ function block_usage_stats( $input = null ) {
  *
  * @param string[] $post_types Post types to scan.
  * @param string   $status     Post status filter ("any" or a concrete status).
+ * @param int      $limit      Largest number of posts to scan.
  * @return array{tally: array<string,int>, post_count: int, truncated: bool, summary: array<string,mixed>}
  */
-function scan_site( array $post_types, string $status ): array {
+function scan_site( array $post_types, string $status, int $limit ): array {
 	$posts = get_posts(
 		array_merge(
 			[
 				'post_type'        => $post_types,
-				'posts_per_page'   => SCAN_LIMIT + 1,
+				'posts_per_page'   => $limit + 1,
 				'orderby'          => 'ID',
 				'order'            => 'ASC',
 				'suppress_filters' => false,
@@ -393,9 +407,9 @@ function scan_site( array $post_types, string $status ): array {
 		)
 	);
 
-	$truncated = count( $posts ) > SCAN_LIMIT;
+	$truncated = count( $posts ) > $limit;
 	if ( $truncated ) {
-		$posts = array_slice( $posts, 0, SCAN_LIMIT );
+		$posts = array_slice( $posts, 0, $limit );
 	}
 
 	$tally = [];
@@ -640,8 +654,7 @@ function site_tally_row_schema(): array {
 		[
 			'post_count'  => Support\prop( 'integer', __( 'Posts scanned on this site.', 'hm-abilities-mcp' ) ),
 			'block_count' => Support\prop( 'integer', __( 'Block instances counted on this site.', 'hm-abilities-mcp' ) ),
-			/* translators: %d: largest number of posts scanned per site. */
-			'truncated'   => Support\prop( 'boolean', sprintf( __( 'True when the site holds more than %d matching posts, so the counts below cover only that many.', 'hm-abilities-mcp' ), SCAN_LIMIT ) ),
+			'truncated'   => Support\prop( 'boolean', __( 'True when the site holds more matching posts than the scan limit, so the counts below cover only that many.', 'hm-abilities-mcp' ) ),
 			'blocks'      => Support\block_tally_schema(),
 		],
 		[ 'post_count', 'block_count', 'truncated', 'blocks' ]
