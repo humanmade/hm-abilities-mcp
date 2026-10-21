@@ -64,6 +64,28 @@ check( 'upload-media succeeds', $media > 0, $uploaded );
 check( 'the attachment title keeps its backslash', get_post( $media )->post_title === $title, get_post( $media )->post_title );
 check( 'the alt text keeps its backslash', get_post_meta( $media, '_wp_attachment_image_alt', true ) === $alt, get_post_meta( $media, '_wp_attachment_image_alt', true ) );
 
+// With no title or alt in the input, core takes them and the caption from the
+// image's IPTC and XMP metadata.
+require_once ABSPATH . 'wp-admin/includes/file.php';
+
+$meta_title   = 'IPTC\title';
+$meta_caption = 'Shot in C:\Studio';
+$meta_alt     = 'XMP\alt';
+$iptc         = static fn ( int $dataset, string $value ): string => chr( 0x1C ) . chr( 2 ) . chr( $dataset ) . pack( 'n', strlen( $value ) ) . $value;
+
+$jpeg_path = wp_tempnam( 'slashes.jpg' );
+imagejpeg( $image, $jpeg_path );
+$jpeg = iptcembed( $iptc( 105, $meta_title ) . $iptc( 120, $meta_caption ), $jpeg_path )
+	. '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/">'
+	. '<Iptc4xmpCore:AltTextAccessibility><rdf:Alt><rdf:li xml:lang="x-default">' . $meta_alt . '</rdf:li></rdf:Alt></Iptc4xmpCore:AltTextAccessibility>'
+	. '</rdf:Description></rdf:RDF></x:xmpmeta>';
+wp_delete_file( $jpeg_path );
+
+$from_meta = (int) field( run( 'hm-abilities/upload-media', [ 'data' => base64_encode( $jpeg ) ] ), 'id' );
+check( 'a title read from the image keeps its backslash', get_post( $from_meta )->post_title === $meta_title, get_post( $from_meta )->post_title );
+check( 'a caption read from the image keeps its backslash', get_post( $from_meta )->post_content === $meta_caption, get_post( $from_meta )->post_content );
+check( 'alt text read from the image keeps its backslash', get_post_meta( $from_meta, '_wp_attachment_image_alt', true ) === $meta_alt, get_post_meta( $from_meta, '_wp_attachment_image_alt', true ) );
+
 // wp_http_validate_url() accepts a literal backslash, and a repeat import is
 // matched against the stored source URL. A public IP literal passes the source
 // screen without DNS; the fetch itself is faked.
