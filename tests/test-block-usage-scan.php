@@ -1,13 +1,14 @@
 <?php
 /**
- * Covers block-usage-stats' scan limit at site scope: the result says when a
- * scan was cut short, and hm_abilities_block_usage_scan_limit moves the limit.
- * The filter keeps the fixtures to a handful of posts. Helpers come from
- * tests/bootstrap.php.
+ * Covers block-usage-stats' scan at site scope: the result says when a scan
+ * was cut short, hm_abilities_block_usage_scan_limit moves the limit, and the
+ * scan counts every post across batches without caching them. The filter keeps
+ * the fixtures small. Helpers come from tests/bootstrap.php.
  *
  * @package HM_Abilities_MCP
  */
 
+use const HM\Abilities\Block_Insights\SCAN_BATCH;
 use const HM\Abilities\Block_Insights\SCAN_LIMIT;
 
 wp_set_current_user( 1 );
@@ -59,6 +60,26 @@ $limit = 10;
 $raised = run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
 check( 'every post is scanned again', field( $raised, 'post_count' ) === $published(), $raised );
 check( 'and the result is not truncated', field( $raised, 'truncated' ) === false, $raised );
+
+echo "\n== more posts than one batch ==\n";
+
+$limit = SCAN_BATCH * 3;
+$add_posts( SCAN_BATCH + 5 - $published() );
+
+// Every fixture, and the default "Hello world!" post, holds one paragraph.
+$batched    = run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
+$paragraphs = array_column( (array) field( $batched, 'blocks' ), 'count', 'name' )['core/paragraph'] ?? null;
+check( 'every post is scanned', field( $batched, 'post_count' ) === $published(), $batched );
+check( 'and every post is tallied', $paragraphs === $published(), [ $paragraphs, $published() ] );
+
+echo "\n== the scan leaves nothing cached ==\n";
+
+$sample = (int) get_posts( [ 'post_type' => 'post', 'posts_per_page' => 1, 'fields' => 'ids' ] )[0];
+clean_post_cache( $sample );
+
+run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
+check( 'no post object is cached', wp_cache_get( $sample, 'posts' ) === false, $sample );
+check( 'no post meta is cached', wp_cache_get( $sample, 'post_meta' ) === false, $sample );
 
 remove_filter( 'hm_abilities_block_usage_scan_limit', $set_limit, 10 );
 
