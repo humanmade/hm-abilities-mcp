@@ -36,9 +36,9 @@ const SCAN_BATCH = 100;
  * Sites tallied per `block-usage-stats` call at network scope: default, then
  * the hard ceiling.
  *
- * Each site here costs a `switch_to_blog`, a query for up to SCAN_LIMIT posts,
- * and a block parse of every one of them, so the ceiling is deliberately low —
- * a page of 25 sites is already up to 12,500 post parses in one request.
+ * Each site here costs a `switch_to_blog`, a query for up to the scan limit's
+ * posts, and a block parse of every one of them, so the ceiling is deliberately
+ * low. At the default SCAN_LIMIT, a page of 25 sites is up to 12,500 post parses.
  * Callers cover a larger network by following `next_page` across calls.
  *
  * @var int
@@ -327,10 +327,18 @@ function block_usage_stats( $input = null ) {
 	 * block parse, and at network scope the limit applies to every site in
 	 * the page, so raise it for site scope alone unless the network is small.
 	 *
-	 * @param int    $limit Posts scanned per site. Default SCAN_LIMIT.
+	 * @param int    $limit Posts scanned per site, or -1 for no limit. Default SCAN_LIMIT.
 	 * @param string $scope "site" or "network".
 	 */
-	$limit = max( 1, (int) apply_filters( 'hm_abilities_block_usage_scan_limit', SCAN_LIMIT, $scope ) );
+	$limit = apply_filters( 'hm_abilities_block_usage_scan_limit', SCAN_LIMIT, $scope );
+
+	// -1 means no limit, as in WP_Query. So does PHP_INT_MAX and above, where the
+	// extra row that detects truncation would overflow; compared before the cast wraps it.
+	if ( is_numeric( $limit ) && $limit >= PHP_INT_MAX ) {
+		$limit = null;
+	} else {
+		$limit = (int) $limit === -1 ? null : max( 1, (int) $limit );
+	}
 
 	$global    = [];
 	$by_site   = [];
@@ -340,10 +348,14 @@ function block_usage_stats( $input = null ) {
 	foreach ( $blog_ids as $blog_id ) {
 		$site = Support\with_site(
 			$blog_id,
-			static function () use ( $post_types, $status, $limit ): array {
+			static function () use ( $post_types, $status, $limit ) {
 				return scan_site( $post_types, $status, $limit );
 			}
 		);
+
+		if ( is_wp_error( $site ) ) {
+			return $site;
+		}
 
 		$posts_all += $site['post_count'];
 		$truncated  = $truncated || $site['truncated'];
@@ -396,14 +408,16 @@ function block_usage_stats( $input = null ) {
  * Unpublished statuses are scoped to what the caller may read.
  *
  * Takes the IDs through WP_Query, which applies that scoping, then reads only
- * their content, SCAN_BATCH posts at a time.
+ * their content, SCAN_BATCH posts at a time. An ID query returns before the
+ * `posts_results` and `the_posts` filters, so a plugin hiding posts there does
+ * not narrow the scan.
  *
  * @param string[] $post_types Post types to scan.
  * @param string   $status     Post status filter ("any" or a concrete status).
- * @param int      $limit      Largest number of posts to scan.
- * @return array{tally: array<string,int>, post_count: int, truncated: bool, summary: array<string,mixed>}
+ * @param int|null $limit      Largest number of posts to scan, or null for all.
+ * @return array{tally: array<string,int>, post_count: int, truncated: bool, summary: array<string,mixed>}|\WP_Error
  */
-function scan_site( array $post_types, string $status, int $limit ): array {
+function scan_site( array $post_types, string $status, ?int $limit ) {
 	global $wpdb;
 
 	$scope = array_merge(
@@ -417,14 +431,14 @@ function scan_site( array $post_types, string $status, int $limit ): array {
 
 	$ids = get_posts(
 		$scope + [
-			'posts_per_page' => $limit + 1,
+			'posts_per_page' => $limit === null ? -1 : $limit + 1,
 			'orderby'        => 'ID',
 			'order'          => 'ASC',
 			'fields'         => 'ids',
 		]
 	);
 
-	$truncated = count( $ids ) > $limit;
+	$truncated = $limit !== null && count( $ids ) > $limit;
 	if ( $truncated ) {
 		$ids = array_slice( $ids, 0, $limit );
 	}
@@ -432,10 +446,13 @@ function scan_site( array $post_types, string $status, int $limit ): array {
 	$tally = [];
 
 	foreach ( array_chunk( $ids, SCAN_BATCH ) as $batch ) {
-		$in = implode( ',', array_map( 'intval', $batch ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- WP_Query primes every post it loads into the object cache, which a tally never reads again.
+		$contents = $wpdb->get_col( $wpdb->prepare( "SELECT post_content FROM {$wpdb->posts} WHERE ID IN (" . implode( ',', array_fill( 0, count( $batch ), '%d' ) ) . ')', $batch ) );
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WP_Query primes every post it loads into the object cache, which a tally never reads again. $in is integers from the scoped query above.
-		$contents = $wpdb->get_col( "SELECT post_content FROM {$wpdb->posts} WHERE ID IN ($in)" );
+		// A failed read returns no rows, which would tally the batch as empty posts.
+		if ( $wpdb->last_error !== '' ) {
+			return Support\error( 'hm_abilities_block_scan_failed', __( 'Could not read post content for the block scan.', 'hm-abilities-mcp' ), 500 );
+		}
 
 		foreach ( $contents as $content ) {
 			if ( $content === '' ) {

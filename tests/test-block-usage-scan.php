@@ -81,6 +81,45 @@ run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
 check( 'no post object is cached', wp_cache_get( $sample, 'posts' ) === false, $sample );
 check( 'no post meta is cached', wp_cache_get( $sample, 'post_meta' ) === false, $sample );
 
+echo "\n== no limit ==\n";
+
+// The fixtures number fewer than SCAN_LIMIT, so the ID query's own page size is
+// what shows the scan asked for every post rather than some large cap.
+$id_page   = null;
+$see_query = static function ( WP_Query $query ) use ( &$id_page ): void {
+	if ( $query->get( 'fields' ) === 'ids' ) {
+		$id_page = $query->get( 'posts_per_page' );
+	}
+};
+add_action( 'pre_get_posts', $see_query );
+
+// -1 is WP_Query's "all". PHP_INT_MAX overflowed the extra row that detects
+// truncation, and a float past it wrapped negative when cast.
+foreach ( [ -1, PHP_INT_MAX, PHP_INT_MAX + 1, INF ] as $limit ) {
+	$id_page = null;
+	$all     = run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
+	check( "a limit of $limit queries every post", $id_page === -1, $id_page );
+	check( 'and scans every post', field( $all, 'post_count' ) === $published(), $all );
+	check( 'and the result is not truncated', field( $all, 'truncated' ) === false, $all );
+}
+
+remove_action( 'pre_get_posts', $see_query );
+
+echo "\n== a failed content read ==\n";
+
+global $wpdb;
+
+// Breaks only the content query, so the ID query still finds posts to read.
+$break_read = static fn ( string $query ): string => str_contains( $query, 'SELECT post_content' ) ? 'SELECT post_content FROM hm_missing_table' : $query;
+add_filter( 'query', $break_read );
+$suppressed = $wpdb->suppress_errors( true );
+
+$failed = run( 'hm-abilities/block-usage-stats', [ 'post_type' => 'post' ] );
+
+$wpdb->suppress_errors( $suppressed );
+remove_filter( 'query', $break_read );
+check( 'the scan reports the failure rather than counting the posts as empty', code( $failed ) === 'hm_abilities_block_scan_failed', $failed );
+
 remove_filter( 'hm_abilities_block_usage_scan_limit', $set_limit, 10 );
 
 summary();
