@@ -33,4 +33,7 @@ CONTRIBUTING.md
 docs
 .remember
 
+# Test suites. They run against wp-env from the repository, never from an installed copy.
+tests
+
 .DS_Store
