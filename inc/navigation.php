@@ -84,7 +84,7 @@ function register(): void {
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_menus',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
-			'meta'                => meta(
+			'meta'                => Support\meta(
 				[
 					'readonly'    => true,
 					'destructive' => false,
@@ -121,7 +121,7 @@ function register(): void {
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\get_menu',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
-			'meta'                => meta(
+			'meta'                => Support\meta(
 				[
 					'readonly'    => true,
 					'destructive' => false,
@@ -187,7 +187,7 @@ function register(): void {
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\update_menu',
 			'permission_callback' => __NAMESPACE__ . '\\can_write',
-			'meta'                => meta(
+			'meta'                => Support\meta(
 				[
 					'readonly'    => false,
 					'destructive' => true,
@@ -196,20 +196,6 @@ function register(): void {
 			),
 		]
 	);
-}
-
-/**
- * Build the meta block.
- *
- * @param array<string, bool> $annotations Annotation flags.
- * @return array<string, mixed>
- */
-function meta( array $annotations ): array {
-	return [
-		'show_in_rest' => true,
-		'mcp'          => [ 'public' => true ],
-		'annotations'  => $annotations,
-	];
 }
 
 /**

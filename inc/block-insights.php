@@ -148,7 +148,7 @@ function register(): void {
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\block_usage_stats',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
-			'meta'                => meta( $read ),
+			'meta'                => Support\meta( $read ),
 		]
 	);
 
@@ -216,7 +216,7 @@ function register(): void {
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\get_page_blocks',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
-			'meta'                => meta( $read ),
+			'meta'                => Support\meta( $read ),
 		]
 	);
 
@@ -265,23 +265,9 @@ function register(): void {
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\find_missing_block',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
-			'meta'                => meta( $read ),
+			'meta'                => Support\meta( $read ),
 		]
 	);
-}
-
-/**
- * Build the meta block shared by these abilities.
- *
- * @param array<string, bool> $annotations Annotation flags.
- * @return array<string, mixed>
- */
-function meta( array $annotations ): array {
-	return [
-		'show_in_rest' => true,
-		'mcp'          => [ 'public' => true ],
-		'annotations'  => $annotations,
-	];
 }
 
 /**

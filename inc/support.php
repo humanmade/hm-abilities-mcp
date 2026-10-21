@@ -468,6 +468,21 @@ function format_attachment( int $id, string $original_url = '' ): array {
 }
 
 /**
+ * Build the meta block every ability registers with: served over REST and
+ * listed as a public MCP tool.
+ *
+ * @param array<string, bool> $annotations Annotation flags.
+ * @return array<string, mixed>
+ */
+function meta( array $annotations ): array {
+	return [
+		'show_in_rest' => true,
+		'mcp'          => [ 'public' => true ],
+		'annotations'  => $annotations,
+	];
+}
+
+/**
  * Build an object input schema with the top-level default the validator needs.
  *
  * @param array<string, mixed> $properties Schema properties.

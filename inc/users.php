@@ -90,15 +90,13 @@ function register(): void {
 			'output_schema'       => Support\list_schema( user_schema() ),
 			'execute_callback'    => __NAMESPACE__ . '\\list_users',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
-			'meta'                => [
-				'show_in_rest' => true,
-				'mcp'          => [ 'public' => true ],
-				'annotations'  => [
+			'meta'                => Support\meta(
+				[
 					'readonly'    => true,
 					'destructive' => false,
 					'idempotent'  => true,
-				],
-			],
+				]
+			),
 		]
 	);
 }
