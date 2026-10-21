@@ -78,7 +78,7 @@ function register(): void {
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\validate_blocks',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
-			'meta'                => meta( $read ),
+			'meta'                => Support\meta( $read ),
 		]
 	);
 
@@ -115,23 +115,9 @@ function register(): void {
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_block_types',
 			'permission_callback' => __NAMESPACE__ . '\\can_read',
-			'meta'                => meta( $read ),
+			'meta'                => Support\meta( $read ),
 		]
 	);
-}
-
-/**
- * Build the meta block shared by block abilities.
- *
- * @param array<string, bool> $annotations Annotation flags.
- * @return array<string, mixed>
- */
-function meta( array $annotations ): array {
-	return [
-		'show_in_rest' => true,
-		'mcp'          => [ 'public' => true ],
-		'annotations'  => $annotations,
-	];
 }
 
 /**

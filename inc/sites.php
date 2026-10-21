@@ -100,15 +100,13 @@ function register(): void {
 			),
 			'execute_callback'    => __NAMESPACE__ . '\\list_network_sites',
 			'permission_callback' => 'HM\\Abilities\\Support\\cap_check_network',
-			'meta'                => [
-				'show_in_rest' => true,
-				'mcp'          => [ 'public' => true ],
-				'annotations'  => [
+			'meta'                => Support\meta(
+				[
 					'readonly'    => true,
 					'destructive' => false,
 					'idempotent'  => true,
-				],
-			],
+				]
+			),
 		]
 	);
 }
