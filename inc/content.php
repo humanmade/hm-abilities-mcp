@@ -675,14 +675,16 @@ function create_content( $input = null ) {
 			}
 
 			$id = wp_insert_post(
-				[
-					'post_type'    => $post_type,
-					'post_title'   => $input['title'],
-					'post_status'  => $status,
-					'post_author'  => get_current_user_id(),
-					'post_name'    => isset( $input['slug'] ) ? (string) $input['slug'] : '',
-					'post_content' => isset( $input['content'] ) ? (string) $input['content'] : '',
-				],
+				wp_slash(
+					[
+						'post_type'    => $post_type,
+						'post_title'   => $input['title'],
+						'post_status'  => $status,
+						'post_author'  => get_current_user_id(),
+						'post_name'    => isset( $input['slug'] ) ? (string) $input['slug'] : '',
+						'post_content' => isset( $input['content'] ) ? (string) $input['content'] : '',
+					]
+				),
 				true
 			);
 
@@ -750,7 +752,7 @@ function update_content( $input = null ) {
 				$update['post_content'] = (string) $input['content'];
 			}
 
-			$result = wp_update_post( $update, true );
+			$result = wp_update_post( wp_slash( $update ), true );
 
 			if ( is_wp_error( $result ) ) {
 				return $result;

@@ -249,7 +249,7 @@ function sideload_url( array $input ) {
 		return $id;
 	}
 
-	update_post_meta( $id, Support\SOURCE_URL_META, $source_url );
+	update_post_meta( $id, Support\SOURCE_URL_META, wp_slash( $source_url ) );
 
 	return Support\format_attachment( $id, $source_url ) + [ 'already_existed' => false ];
 }
@@ -292,7 +292,7 @@ function import_file( string $temp, string $name, int $post_id, array $input ) {
 
 	$title = isset( $input['title'] ) ? (string) $input['title'] : '';
 
-	$id = media_handle_sideload( $file_array, $post_id, $title !== '' ? $title : null );
+	$id = media_handle_sideload( $file_array, $post_id, $title !== '' ? wp_slash( $title ) : null );
 
 	if ( is_wp_error( $id ) ) {
 		// media_handle_sideload cleans up the temp file on its own error paths,
@@ -305,7 +305,7 @@ function import_file( string $temp, string $name, int $post_id, array $input ) {
 	}
 
 	if ( isset( $input['alt'] ) && (string) $input['alt'] !== '' ) {
-		update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( (string) $input['alt'] ) );
+		update_post_meta( $id, '_wp_attachment_image_alt', wp_slash( sanitize_text_field( (string) $input['alt'] ) ) );
 	}
 
 	return $id;
