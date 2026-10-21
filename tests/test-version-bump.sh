@@ -130,6 +130,21 @@ printf 'decision\n' > "${repo}/docs/adr/0001.md"
 check 'a new file under an ignored directory is not' "$(run_check "${repo}")" '0'
 
 echo
+echo "A shipped file moved somewhere that does not ship"
+# With rename detection on, git lists only the destination, which does not ship. Set here so
+# the case fails the same way whatever the runner's own git config says.
+repo="$(make_repo moved_committed)"
+git_test "${repo}" config diff.renames true
+git_test "${repo}" mv inc/namespace.php docs/namespace.php
+git_test "${repo}" commit -q -m 'move runtime into docs'
+check 'is rejected once committed' "$(run_check "${repo}")" '1'
+
+repo="$(make_repo moved_staged)"
+git_test "${repo}" config diff.renames true
+git_test "${repo}" mv inc/namespace.php docs/namespace.php
+check 'and while only staged' "$(run_check "${repo}")" '1'
+
+echo
 echo "The version must go up, not merely differ"
 repo="$(make_repo backwards)"
 change_shipping_file "${repo}"

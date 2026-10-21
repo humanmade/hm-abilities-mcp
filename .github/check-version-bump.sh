@@ -67,13 +67,16 @@ head_version="$( read_version < "${PLUGIN_FILE}" )"
 # All three sources, because a branch mid-review has committed, modified and untracked work
 # at once, and `git diff ${BASE}...HEAD` alone reports none of the last two. Reading only
 # that is how this check would come to pass a branch it should fail.
+#
+# --no-renames, because a rename lists only its destination: a shipped file moved under an
+# export-ignored directory would otherwise pass with its shipped path never seen.
 changed="$( mktemp )"
 shipping="$( mktemp )"
 trap 'rm -f "${changed}" "${shipping}"' EXIT
 
 {
-	git diff --name-only "${BASE}...HEAD"
-	git diff --name-only HEAD
+	git diff --name-only --no-renames "${BASE}...HEAD"
+	git diff --name-only --no-renames HEAD
 	git ls-files --others --exclude-standard
 } | LC_ALL=C sort -u > "${changed}"
 
