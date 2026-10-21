@@ -97,23 +97,14 @@ function titles( $result ): array {
 }
 
 /**
- * Whether a list result contains an item whose title contains the needle.
- *
- * Matches on a substring because `get_the_title()` prefixes a private post
- * with "Private: ", which an equality check silently misses.
+ * Whether a list result contains an item with exactly this title.
  *
  * @param mixed  $result Ability result.
- * @param string $needle Text to look for.
+ * @param string $needle Title to look for.
  * @return bool
  */
 function leaked( $result, string $needle ): bool {
-	foreach ( titles( $result ) as $title ) {
-		if ( str_contains( (string) $title, $needle ) ) {
-			return true;
-		}
-	}
-
-	return false;
+	return in_array( $needle, titles( $result ), true );
 }
 
 /**

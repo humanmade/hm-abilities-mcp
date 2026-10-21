@@ -113,7 +113,7 @@ Lists live subsites with their `site_id`, name and URL, which the other abilitie
 
 The content abilities cover pages and posts. The `hm_abilities_post_types` filter adds custom post types.
 
-Each post comes back with `id`, `title`, `slug`, `status`, `type`, `link`, `author` (`id`, `name`, `slug`), and `date` and `modified` in ISO 8601 in the site's timezone. Pass `"fields": ["terms"]` to add the taxonomy terms each one carries. They are left out by default because a post can carry many.
+Each post comes back with `id`, `title`, `slug`, `status`, `type`, `link`, `author` (`id`, `name`, `slug`), and `date` and `modified` in ISO 8601 in the site's timezone. `title` is the title as stored, so it can go back to `update-content` unchanged. Pass `"fields": ["terms"]` to add the taxonomy terms each one carries. They are left out by default because a post can carry many.
 
 #### `hm-abilities/list-content`
 
