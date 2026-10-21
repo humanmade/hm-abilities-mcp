@@ -78,7 +78,7 @@ function sideload( array $input ) {
 		return $id;
 	}
 
-	update_post_meta( $id, CONTENT_HASH_META, $hash );
+	update_post_meta( $id, CONTENT_HASH_META, wp_slash( $hash ) );
 
 	return Support\format_attachment( $id ) + [ 'already_existed' => false ];
 }

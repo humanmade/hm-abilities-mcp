@@ -42,8 +42,9 @@ if ! docker ps --format '{{.Names}}' | grep -q 'wp-env.*wordpress'; then
 fi
 
 # wp-env keeps the site's wp-config.php on the host, which is what makes the
-# network conversion reversible.
-WP_CONFIG=$(ls "$HOME"/.wp-env/*"$(basename "$PWD")"*/WordPress/wp-config.php 2>/dev/null | head -1)
+# network conversion reversible. Where it isn't there, as on a CI runner, `ls`
+# fails and pipefail would end the script silently, so an empty match is allowed.
+WP_CONFIG=$(ls "$HOME"/.wp-env/*"$(basename "$PWD")"*/WordPress/wp-config.php 2>/dev/null | head -1 || true)
 
 # Drop the constants `wp core multisite-convert` appended, returning the site to
 # single-site. A no-op when they are not there.
