@@ -1,0 +1,37 @@
+name: Version
+
+# Deliberately unfiltered by path, unlike tests.yml. Whether a change needs a bump depends on
+# .gitattributes, not on its file type, so a paths list would skip exactly the README-only
+# or inc-only branch this exists to catch. No wp-env and no install: the run is seconds.
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    name: Version bump
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The version gate below diffs this branch against its base, which the default
+          # shallow fetch does not bring down.
+          fetch-depth: 0
+
+      - name: Test the version check
+        run: bash tests/test-version-bump.sh
+
+      # Separate from the suite above: that one is hermetic, this one judges the branch it
+      # runs on.
+      - name: Check the version was raised
+        run: bash .github/check-version-bump.sh "origin/${{ github.base_ref }}"
