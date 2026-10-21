@@ -349,10 +349,12 @@ function update_menu( $input = null ) {
 			$items = $input['items'];
 
 			$result = wp_update_post(
-				[
-					'ID'           => $id,
-					'post_content' => Support\nav_items_to_markup( $items ),
-				],
+				wp_slash(
+					[
+						'ID'           => $id,
+						'post_content' => Support\nav_items_to_markup( $items ),
+					]
+				),
 				true
 			);
 

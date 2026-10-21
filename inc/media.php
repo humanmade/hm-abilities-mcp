@@ -249,7 +249,7 @@ function sideload_url( array $input ) {
 		return $id;
 	}
 
-	update_post_meta( $id, Support\SOURCE_URL_META, $source_url );
+	update_post_meta( $id, Support\SOURCE_URL_META, wp_slash( $source_url ) );
 
 	return Support\format_attachment( $id, $source_url ) + [ 'already_existed' => false ];
 }
@@ -292,7 +292,22 @@ function import_file( string $temp, string $name, int $post_id, array $input ) {
 
 	$title = isset( $input['title'] ) ? (string) $input['title'] : '';
 
-	$id = media_handle_sideload( $file_array, $post_id, $title !== '' ? $title : null );
+	// media_handle_sideload() writes the title, caption and alt it reads from the
+	// image without slashing them. Only that read is slashed: the second, inside
+	// wp_generate_attachment_metadata(), reaches that function's own filters.
+	$slash_meta = static function ( $meta ) use ( &$slash_meta ) {
+		remove_filter( 'wp_read_image_metadata', $slash_meta, PHP_INT_MAX );
+
+		return wp_slash( $meta );
+	};
+
+	add_filter( 'wp_read_image_metadata', $slash_meta, PHP_INT_MAX );
+
+	try {
+		$id = media_handle_sideload( $file_array, $post_id, $title !== '' ? wp_slash( $title ) : null );
+	} finally {
+		remove_filter( 'wp_read_image_metadata', $slash_meta, PHP_INT_MAX );
+	}
 
 	if ( is_wp_error( $id ) ) {
 		// media_handle_sideload cleans up the temp file on its own error paths,
@@ -305,7 +320,7 @@ function import_file( string $temp, string $name, int $post_id, array $input ) {
 	}
 
 	if ( isset( $input['alt'] ) && (string) $input['alt'] !== '' ) {
-		update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( (string) $input['alt'] ) );
+		update_post_meta( $id, '_wp_attachment_image_alt', wp_slash( sanitize_text_field( (string) $input['alt'] ) ) );
 	}
 
 	return $id;
