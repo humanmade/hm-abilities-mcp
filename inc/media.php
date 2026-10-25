@@ -57,10 +57,6 @@ function bootstrap(): void {
  * @return void
  */
 function register(): void {
-	if ( ! function_exists( 'wp_register_ability' ) ) {
-		return;
-	}
-
 	wp_register_ability(
 		'hm-abilities/upload-media',
 		[
