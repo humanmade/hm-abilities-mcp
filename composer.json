@@ -13,15 +13,34 @@
 		"php": ">=8.2"
 	},
 	"require-dev": {
-		"humanmade/coding-standards": "^2.0"
+		"humanmade/coding-standards": "^2.5",
+		"phpunit/phpunit": "^9.6",
+		"szepeviktor/phpstan-wordpress": "^2",
+		"wp-coding-standards/wpcs": "^3.0",
+		"yoast/phpunit-polyfills": "^4.0"
 	},
 	"scripts": {
+		"lint": [
+			"@phpcs",
+			"@analyse"
+		],
 		"phpcs": "phpcs",
-		"phpcbf": "phpcbf"
+		"phpcbf": "phpcbf",
+		"analyse": "phpstan analyse --configuration=phpstan.neon.dist --memory-limit=1G"
+	},
+	"scripts-descriptions": {
+		"lint": "Run PHPCS and PHPStan over the plugin.",
+		"phpcbf": "Auto-fix the coding standard violations that are fixable.",
+		"phpcs": "Check coding standards against humanmade/coding-standards.",
+		"analyse": "Run static analysis at PHPStan level 5."
 	},
 	"config": {
 		"allow-plugins": {
 			"dealerdirect/phpcodesniffer-composer-installer": true
-		}
+		},
+		"platform": {
+			"php": "8.4"
+		},
+		"sort-packages": true
 	}
 }

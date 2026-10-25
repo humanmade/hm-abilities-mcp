@@ -17,8 +17,11 @@
 .github
 
 # Dev tooling config
-.phpcs.xml
+phpcs.xml.dist
+phpunit.xml.dist
+phpstan.neon.dist
 .wp-env.json
+.wp-env.test.json
 package.json
 package-lock.json
 composer.lock

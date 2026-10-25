@@ -10,7 +10,7 @@ on:
     # Only run when PHP or the coding standards configuration change.
     paths:
       - '**.php'
-      - '.phpcs.xml'
+      - 'phpcs.xml.dist'
       - 'composer.json'
       - 'composer.lock'
 

@@ -9,12 +9,16 @@
 		"env:logs": "npx @wordpress/env logs development | grep -v -E '\"(GET|OPTIONS|HEAD|POST|PUT)'",
 		"env:start": "npx @wordpress/env start",
 		"env:stop": "npx @wordpress/env stop",
+		"env:test:start": "npx @wordpress/env start --config=.wp-env.test.json",
+		"env:test:stop": "npx @wordpress/env stop --config=.wp-env.test.json",
 		"format": "wp-scripts format",
 		"lint:php": "composer phpcs",
 		"test": "bash tests/run.sh",
 		"test:multisite": "bash tests/run.sh --multisite",
 		"test:version": "bash tests/test-version-bump.sh",
-		"check:version": "bash .github/check-version-bump.sh"
+		"check:version": "bash .github/check-version-bump.sh",
+		"test:wp": "bash tests/phpunit.sh",
+		"lint:analyse": "composer analyse"
 	},
 	"author": "Human Made Limited",
 	"license": "GPL-2.0-or-later",
