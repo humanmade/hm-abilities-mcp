@@ -328,7 +328,7 @@ function import_file( string $temp, string $name, int $post_id, array $input ) {
  * and skips the address screen. A host that resolves to nothing is refused.
  *
  * @param string $url Validated source URL.
- * @return string[]|WP_Error Addresses to connect to, or an error.
+ * @return string[]|\WP_Error Addresses to connect to, or an error.
  */
 function resolve_source_target( string $url ) {
 	$host = wp_parse_url( $url, PHP_URL_HOST );

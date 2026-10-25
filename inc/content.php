@@ -496,7 +496,7 @@ function resolve_tax_query( array $input ) {
 			);
 		}
 
-		$values = array_values( array_filter( array_map( 'strval', is_array( $values ) ? $values : [ $values ] ), 'strlen' ) );
+		$values = array_values( array_filter( array_map( 'strval', is_array( $values ) ? $values : [ $values ] ), static fn ( string $value ): bool => $value !== '' ) );
 
 		if ( $values === [] ) {
 			continue;
