@@ -24,14 +24,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # The version gate below diffs this branch against its base, which the default
-          # shallow fetch does not bring down.
+          # The version gate below diffs this branch against the default branch, which the
+          # default shallow fetch does not bring down.
           fetch-depth: 0
 
       - name: Test the version check
         run: bash tests/test-version-bump.sh
 
       # Separate from the suite above: that one is hermetic, this one judges the branch it
-      # runs on.
+      # runs on. Against the default branch rather than the PR's base, so a PR stacked on
+      # another passes on the one bump at the bottom of the stack.
       - name: Check the version was raised
-        run: bash .github/check-version-bump.sh "origin/${{ github.base_ref }}"
+        run: bash .github/check-version-bump.sh "origin/${{ github.event.repository.default_branch }}"
