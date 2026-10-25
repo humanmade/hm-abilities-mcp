@@ -12,6 +12,7 @@
 		"env:test:start": "npx @wordpress/env start --config=.wp-env.test.json",
 		"env:test:stop": "npx @wordpress/env stop --config=.wp-env.test.json",
 		"format": "wp-scripts format",
+		"lint": "concurrently -n PHP,ANALYSE -c yellow.bold,blue.bold \"npm run lint:php\" \"npm run lint:analyse\"",
 		"lint:php": "composer phpcs",
 		"test": "bash tests/run.sh",
 		"test:multisite": "bash tests/run.sh --multisite",
@@ -23,6 +24,7 @@
 	"author": "Human Made Limited",
 	"license": "GPL-2.0-or-later",
 	"devDependencies": {
-		"@wordpress/scripts": "^28.6.0"
+		"@wordpress/scripts": "^28.6.0",
+		"concurrently": "^10.0.6"
 	}
 }
