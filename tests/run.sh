@@ -44,7 +44,9 @@ fi
 # wp-env keeps the site's wp-config.php on the host, which is what makes the
 # network conversion reversible. Where it isn't there, as on a CI runner, `ls`
 # fails and pipefail would end the script silently, so an empty match is allowed.
-WP_CONFIG=$(ls "$HOME"/.wp-env/*"$(basename "$PWD")"*/WordPress/wp-config.php 2>/dev/null | head -1 || true)
+# The hash suffix is hex, which keeps the .wp-env.test.json environment's
+# "<name>-test-<hash>" directory out of the match.
+WP_CONFIG=$(ls "$HOME"/.wp-env/wp-env-"$(basename "$PWD")"-[0-9a-f]*/WordPress/wp-config.php 2>/dev/null | head -1 || true)
 
 # Drop the constants `wp core multisite-convert` appended, returning the site to
 # single-site. A no-op when they are not there.
@@ -62,17 +64,32 @@ unconvert_multisite() {
 	fi
 }
 
+is_network() {
+	npx @wordpress/env run cli -- wp eval 'echo is_multisite() ? 1 : 0;' 2>/dev/null | grep -q '1'
+}
+
 if [ "$MULTISITE" = "1" ]; then
 	FILES=(tests/multisite/test-*.php)
-
-	if ! npx @wordpress/env run cli -- wp eval 'echo is_multisite() ? 1 : 0;' 2>/dev/null | grep -q '1'; then
-		echo "Converting the environment to a network."
-		npx @wordpress/env run cli -- wp core multisite-convert >/dev/null
-	fi
 
 	# Leave the site single-site again however this run ends, so the next
 	# `npm test` is not left staring at a network config with no network tables.
 	trap unconvert_multisite EXIT
+
+	if ! is_network; then
+		# The trap strips the constants but leaves the network tables, and
+		# `multisite-convert` refuses to write the constants over existing tables
+		# ("The network already exists"), so convert from a clean database.
+		echo "Converting the environment to a network."
+		npx @wordpress/env reset development >/dev/null 2>&1
+		npx @wordpress/env run cli -- wp core multisite-convert >/dev/null
+	fi
+
+	# Every multisite suite skips itself on a single site, which would report a
+	# pass having checked nothing.
+	if ! is_network; then
+		echo "The environment is still single-site after converting it to a network." >&2
+		exit 1
+	fi
 else
 	FILES=(tests/test-*.php)
 
@@ -98,7 +115,7 @@ for FILE in "${FILES[@]}"; do
 	# Resetting a network would drop the tables the constants still expect, so
 	# only the single-site suites get a clean database between files.
 	if [ "$MULTISITE" = "0" ]; then
-		npx @wordpress/env clean all >/dev/null 2>&1
+		npx @wordpress/env reset development >/dev/null 2>&1
 	fi
 
 	if ! npx @wordpress/env run cli -- \
@@ -116,7 +133,7 @@ if [ "$MULTISITE" = "0" ] && { [ -z "$FILTER" ] || [[ "rest-path" == *"$FILTER"*
 	echo " rest-path"
 	echo "=============================================================="
 
-	npx @wordpress/env clean all >/dev/null 2>&1
+	npx @wordpress/env reset development >/dev/null 2>&1
 
 	if ! bash tests/rest-path.sh; then
 		FAILED+=("rest-path")

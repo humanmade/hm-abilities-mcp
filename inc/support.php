@@ -641,11 +641,11 @@ function validate_id( $input, string $key = 'id' ) {
  * API replaces a permission callback's WP_Error with a generic one and the
  * 404/403 split would be lost.
  *
- * @param int           $id       Post ID.
- * @param string        $cap      Meta capability checked against the post: `read_post` or `edit_post`.
- * @param string        $noun     Names the object in messages: `post`, `page` or `navigation menu`.
- * @param callable|null $visible  Receives the WP_Post. False reads as not found (404). Default all visible.
- * @param callable|null $in_scope Receives the WP_Post. False is forbidden (403). Default all in scope.
+ * @param int                              $id       Post ID.
+ * @param string                           $cap      Meta capability checked against the post: `read_post` or `edit_post`.
+ * @param 'post'|'page'|'navigation menu' $noun     Names the object in messages.
+ * @param callable|null                    $visible  Receives the WP_Post. False reads as not found (404). Default all visible.
+ * @param callable|null                    $in_scope Receives the WP_Post. False is forbidden (403). Default all in scope.
  * @return WP_Post|WP_Error
  */
 function resolve_post( int $id, string $cap, string $noun, ?callable $visible = null, ?callable $in_scope = null ) {
@@ -673,7 +673,7 @@ function resolve_post( int $id, string $cap, string $noun, ?callable $visible = 
  * Whole sentences per noun, because a noun spliced into a translated sentence
  * cannot be translated.
  *
- * @param string $noun `post`, `page` or `navigation menu`.
+ * @param 'post'|'page'|'navigation menu' $noun Object the messages name.
  * @return array<string, string> Keyed `not_found`, `read_post` and `edit_post`.
  */
 function post_messages( string $noun ): array {
@@ -845,7 +845,7 @@ function block_outline( array $blocks ): array {
  * spam, and deleted sites alongside live ones. The abilities only ever act on
  * live sites, so every site lookup passes these.
  *
- * @return array<string, int>
+ * @return array{archived: int, spam: int, deleted: int}
  */
 function live_site_args(): array {
 	return [

@@ -28,10 +28,6 @@ function bootstrap(): void {
  * @return void
  */
 function register(): void {
-	if ( ! function_exists( 'wp_register_ability_category' ) ) {
-		return;
-	}
-
 	wp_register_ability_category(
 		Support\CATEGORY,
 		[

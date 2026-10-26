@@ -1,6 +1,6 @@
 <?php
 /**
- * Shared helpers for the ability test scripts.
+ * Shared helpers for the ability test scripts, and the PHPUnit bootstrap.
  *
  * Loaded with WP-CLI's --require so the helpers are real includes. The test
  * files themselves run through `wp eval-file`, which evaluates them inside a
@@ -8,10 +8,49 @@
  * live in $GLOBALS rather than in a `global` declaration that would silently
  * bind to nothing.
  *
+ * Under PHPUnit, WP_CLI is not defined and nothing has loaded WordPress yet, so
+ * this file boots the WordPress test library with the plugin active.
+ *
  * @package HM_Abilities_MCP
  */
 
 declare( strict_types = 1 );
+
+if ( ! defined( 'WP_CLI' ) ) {
+	boot_wordpress_tests();
+}
+
+/**
+ * Loads the WordPress test library from WP_TESTS_DIR, with the plugin loaded on `muplugins_loaded`.
+ *
+ * wp-env sets WP_TESTS_DIR in its cli container.
+ *
+ * @return void
+ */
+function boot_wordpress_tests(): void {
+	$tests_dir = getenv( 'WP_TESTS_DIR' );
+
+	if ( ! $tests_dir || ! is_file( "$tests_dir/includes/functions.php" ) ) {
+		throw new RuntimeException( 'WP_TESTS_DIR does not point at the WordPress test library. Run the suite with: npm run test:wp' );
+	}
+
+	// The test library refuses to boot without the PHPUnit Polyfills, which Composer autoloads.
+	require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+	require_once "$tests_dir/includes/functions.php";
+
+	tests_add_filter( 'muplugins_loaded', 'load_plugin' );
+
+	require "$tests_dir/includes/bootstrap.php";
+}
+
+/**
+ * Loads the plugin under test.
+ *
+ * @return void
+ */
+function load_plugin(): void {
+	require dirname( __DIR__ ) . '/hm-abilities-mcp.php';
+}
 
 $GLOBALS['hm_failures'] = 0;
 $GLOBALS['hm_checks']   = 0;

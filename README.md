@@ -20,7 +20,9 @@ composer install && npm ci
 npm run env:start        # WordPress at http://localhost:3031, with the MCP adapter and Query Monitor active
 npm test                 # single-site suites
 npm run test:multisite   # network suites
-npm run lint:php
+npm run env:test:start   # separate test site at http://localhost:8889, from .wp-env.test.json
+npm run test:wp          # PHPUnit suites, run on the test site
+npm run lint             # PHPCS and PHPStan, run side by side
 ```
 
 ## Connecting an AI assistant
