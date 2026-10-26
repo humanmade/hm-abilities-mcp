@@ -10,6 +10,8 @@ There is currently no automated process to build assets when releasing, so pleas
 
 Bump the version once per branch, on the first change that ships, and never again on that branch. The version lives in one place: the `Version` header in `hm-abilities-mcp.php`. Patch for fixes, minor for new behaviour, major for a break.
 
+Stacked pull requests share one bump, on the bottom branch. The Version workflow compares every pull request with `main` rather than its base, so the branches above it pass without one.
+
 A change ships when `.gitattributes` does not export-ignore it or any directory above it. `README.md`, `inc/` and `hm-abilities-mcp.php` ship. `docs/`, `tests/`, `.github/` and `CONTRIBUTING.md` do not, and need no bump.
 
 To see whether this branch has bumped already, compare `git show main:hm-abilities-mcp.php` with the working tree. `npm run check:version` does that for committed, modified and untracked changes, and the Version workflow runs it on every pull request. Set `ALLOW_UNVERSIONED=1` for a branch that deliberately ships without a bump.

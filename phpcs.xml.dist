@@ -12,11 +12,17 @@
 	<!-- How to scan -->
 	<arg value="sp"/> <!-- Show sniff and progress -->
 	<arg name="colors"/> <!-- Show results with colors (disable if working on Windows). -->
-	<arg name="basepath" value="."/> <!-- Show paths as the relevant relative path. -->
-	<arg name="parallel" value="8"/> <!-- Enables parallel processing when available. -->
+	<arg name="basepath" value="."/>
+	<arg name="parallel" value="20"/>
 
-	<!-- Support recent versions of WordPress. -->
-	<config name="minimum_supported_wp_version" value="6.8"/>
+    <arg name="extensions" value="php"/>
+
+	<arg name="cache" value=".phpcs.cache"/>
+
+	<!-- 6.9 is the first release with the Abilities API in core. -->
+	<config name="minimum_supported_wp_version" value="6.9"/>
+
+    <rule ref="PHPCompatibilityWP"/>
 
 	<!-- Human Made Coding Standards -->
 	<rule ref="HM">

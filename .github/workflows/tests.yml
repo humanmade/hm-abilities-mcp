@@ -12,20 +12,24 @@ on:
       - '**.php'
       - 'tests/**'
       - '.wp-env.json'
+      - '.wp-env.test.json'
       - 'package.json'
+      - 'phpunit.xml.dist'
+      - 'composer.json'
+      - 'composer.lock'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Sites run 7.0. Both wp-env configs leave core unpinned, so local runs get the latest release.
+  WP_ENV_CORE: https://wordpress.org/wordpress-7.0.zip
+
 jobs:
   test:
     name: Ability tests (WordPress 7.0)
     runs-on: ubuntu-latest
-
-    env:
-      # Sites run 7.0. `.wp-env.json` leaves core unpinned, so local runs get the latest release.
-      WP_ENV_CORE: https://wordpress.org/wordpress-7.0.zip
 
     steps:
       - name: Checkout
@@ -42,3 +46,33 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  phpunit:
+    name: PHPUnit (WordPress 7.0)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # PHPUnit and the test library's polyfills run from vendor/ inside the wp-env container.
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-progress --no-interaction --no-ansi
+
+      # @wordpress/env needs Node 22.13 or later.
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Start the wp-env test site
+        run: npm run env:test:start
+
+      - name: Run PHPUnit
+        run: npm run test:wp
