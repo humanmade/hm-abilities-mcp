@@ -6,3 +6,7 @@ parameters:
 	paths:
 		- hm-abilities-mcp.php
 		- inc/
+	# Filter return values, pluggable functions and ability input reach the code
+	# with whatever type a third party gives them, whatever the PHPDoc says, so the
+	# runtime checks on them are not dead code.
+	treatPhpDocTypesAsCertain: false
