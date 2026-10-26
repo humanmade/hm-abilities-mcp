@@ -30,10 +30,6 @@ function bootstrap(): void {
  * @return void
  */
 function register(): void {
-	if ( ! function_exists( 'wp_register_ability' ) ) {
-		return;
-	}
-
 	$read  = [
 		'readonly'    => true,
 		'destructive' => false,
@@ -500,7 +496,7 @@ function resolve_tax_query( array $input ) {
 			);
 		}
 
-		$values = array_values( array_filter( array_map( 'strval', is_array( $values ) ? $values : [ $values ] ), 'strlen' ) );
+		$values = array_values( array_filter( array_map( 'strval', is_array( $values ) ? $values : [ $values ] ), static fn ( string $value ): bool => $value !== '' ) );
 
 		if ( $values === [] ) {
 			continue;

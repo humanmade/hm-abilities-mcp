@@ -22,7 +22,7 @@ npm test                 # single-site suites
 npm run test:multisite   # network suites
 npm run env:test:start   # separate test site at http://localhost:8889, from .wp-env.test.json
 npm run test:wp          # PHPUnit suites, run on the test site
-npm run lint:php
+npm run lint             # PHPCS and PHPStan, run side by side
 ```
 
 ## Connecting an AI assistant
